@@ -91,7 +91,11 @@ def sudocall(cmd):
     cmd = add_sudo(cmd)
     if options.regression_tests:
         print(".EXT", cmd)
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(
+        cmd, shell=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=os.environ,  # bsc#1205925
+    )
     try:
         outp, errp = p.communicate()
         p.wait()
@@ -472,11 +476,6 @@ def drop_attr_defaults(node, ts=0):
                 del node.attrib[defaults[0]]
     except:
         pass
-
-
-def nameandid(e, level):
-    if e.tag:
-        print(level*' ', e.tag, e.get("id"), e.get("name"))
 
 
 def xmltraverse(e, fun, ts=0):

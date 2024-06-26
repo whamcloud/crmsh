@@ -82,13 +82,21 @@ class Context(object):
                     cmd = True
                     break
             if cmd:
+                if self.command_name not in constants.NON_FUNCTIONAL_COMMANDS\
+                        and all(arg not in constants.NON_FUNCTIONAL_OPTIONS for arg in self.command_args):
+                    entry = self.current_level()
+                    if 'requires' in dir(entry) and not entry.requires():
+                        self.fatal_error("Missing requirements")
                 utils.check_user_access(self.current_level().name)
                 rv = self.execute_command() is not False
         except (ValueError, IOError) as e:
             logger.error("%s: %s", self.get_qualified_name(), e, exc_info=e)
             rv = False
-        except utils.TerminateSubCommand:
-            return False
+        except utils.TerminateSubCommand as terminate:
+            if terminate.success:
+                rv = True
+            else:
+                return False
         if cmd or (rv is False):
             rv = self._back_out() and rv
 
@@ -236,8 +244,7 @@ class Context(object):
     def enter_level(self, level):
         '''
         Pushes an instance of the given UILevel
-        subclass onto self.stack. Checks prerequirements
-        for the level (if any).
+        subclass onto self.stack.
         '''
         # on entering new level we need to set the
         # interactive option _before_ creating the level
@@ -248,8 +255,6 @@ class Context(object):
         self._in_transit = True
 
         entry = level()
-        if 'requires' in dir(entry) and not entry.requires():
-            self.fatal_error("Missing requirements")
         self.stack.append(entry)
         self.clear_readline_cache()
 
@@ -317,7 +322,8 @@ class Context(object):
         '''
         ok = True
         if len(self.stack) > 1:
-            ok = self.current_level().end_game(no_questions_asked=self._in_transit) is not False
+            if self.command_name and self.command_name not in constants.NON_FUNCTIONAL_COMMANDS:
+                ok = self.current_level().end_game(no_questions_asked=self._in_transit) is not False
             self.stack.pop()
             self.clear_readline_cache()
         return ok
@@ -338,7 +344,9 @@ class Context(object):
         '''
         Exit from the top level
         '''
-        ok = self.current_level().end_game()
+        ok = True
+        if self.command_name and self.command_name not in constants.NON_FUNCTIONAL_COMMANDS:
+            ok = self.current_level().end_game()
         if options.interactive and not options.batch:
             if constants.need_reset:
                 utils.ext_cmd("reset")

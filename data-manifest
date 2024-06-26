@@ -73,7 +73,9 @@ test/features/bootstrap_sbd_normal.feature
 test/features/cluster_api.feature
 test/features/configure_bugs.feature
 test/features/constraints_bugs.feature
-test/features/coveragerc
+test/features/corosync_ui.feature
+test/features/coverage/coveragerc
+test/features/coverage/sitecustomize.py
 test/features/crm_report_bugs.feature
 test/features/crm_report_normal.feature
 test/features/environment.py
@@ -188,6 +190,7 @@ test/unittests/test_bugs.py
 test/unittests/test_cib.py
 test/unittests/test_cliformat.py
 test/unittests/test.conf
+test/unittests/test_corosync_config_format.py
 test/unittests/test_corosync.py
 test/unittests/test_crashtest_check.py
 test/unittests/test_crashtest_main.py
@@ -205,6 +208,7 @@ test/unittests/test_qdevice.py
 test/unittests/test_ratrace.py
 test/unittests/test_report_collect.py
 test/unittests/test_report_core.py
+test/unittests/test_report_sh.py
 test/unittests/test_report_utils.py
 test/unittests/test_sbd.py
 test/unittests/test_scripts.py

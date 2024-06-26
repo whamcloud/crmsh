@@ -1,5 +1,5 @@
 #!/bin/bash
-DOCKER_IMAGE=${DOCKER_IMAGE:-"nyang23/haleap:15.5"}
+DOCKER_IMAGE=${DOCKER_IMAGE:-"liangxin1300/alpha"}
 PROJECT_PATH=$(dirname $(dirname `realpath $0`))
 PROJECT_INSIDE="/opt/crmsh"
 DOCKER_SERVICE="docker.service"
@@ -32,47 +32,25 @@ EOM
 
 read -r -d '' COROSYNC_CONF_TEMPLATE << EOM
 totem {
-        version: 2
-        cluster_name: hacluster
-        clear_node_high_bit: yes
-        interface {
-                ringnumber: 0
-                mcastport: 5405
-                ttl: 1
-        }
-
-        transport: udpu
-        crypto_hash: sha1
-        crypto_cipher: aes256
-        token: 5000
-        join: 60
-        max_messages: 20
-        token_retransmits_before_loss_const: 10
-}
-
-logging {
-        fileline: off
-        to_stderr: no
-        to_logfile: no
-        logfile: /var/log/cluster/corosync.log
-        to_syslog: yes
-        debug: off
-        timestamp: on
-        logger_subsys {
-                subsys: QUORUM
-                debug: off
-        }
-
+    version: 2
+    cluster_name: cluster1
+    transport: knet
+    crypto_cipher: aes256
+    crypto_hash: sha256
 }
 
 nodelist {
 }
 
 quorum {
+    provider: corosync_votequorum
+}
 
-        # Enable and configure quorum subsystem (default: off)
-        # see also corosync.conf.5 and votequorum.5
-        provider: corosync_votequorum
+logging {
+    to_logfile: yes
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    timestamp: on
 }
 EOM
 
@@ -208,9 +186,8 @@ create_custom_user() {
 	user_name=$1
 	user_id=$2
 	docker_exec $node_name "useradd -m -s /bin/bash ${user_name} 2>/dev/null"
-	docker_exec $node_name "chmod u+w /etc/sudoers"
-	docker_exec $node_name "echo \"${user_name} ALL=(ALL) NOPASSWD: ALL\" >> /etc/sudoers"
-	docker_exec $node_name "chmod u-w /etc/sudoers"
+	docker_exec $node_name "echo \"${user_name} ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/${user_name}"
+	docker_exec $node_name "chmod 0440 /etc/sudoers.d/${user_name}"
 	docker_exec $node_name "echo 'export PATH=\$PATH:/usr/sbin/' >> ~${user_name}/.bashrc"
 	docker_exec $node_name "echo -e \"linux\\nlinux\" | passwd ${user_name} 2>/dev/null"
 	docker_exec $node_name "cp -r /root/.ssh ~${user_name}/ && chown ${user_name}:haclient -R ~${user_name}/.ssh"
@@ -243,6 +220,7 @@ deploy_ha_node() {
 	fi
 	docker_exec $node_name "rm -rf /run/nologin"
 	docker_exec $node_name "echo 'StrictHostKeyChecking no' >> /etc/ssh/ssh_config"
+	docker_exec $node_name "systemctl start sshd.service"
 
 	if [ "$node_name" != "qnetd-node" ];then
 	  docker cp $PROJECT_PATH $node_name:/opt/crmsh
@@ -255,6 +233,8 @@ deploy_ha_node() {
 	  if [ "$NORMAL_USER_FLAG" -eq 1 ];then
 		set_sshd_config_like_in_azure $node_name
           fi
+	  docker_exec $node_name "sed -i 's/; \[report\]/[report]/' /etc/crm/crm.conf"
+	  docker_exec $node_name "sed -i 's/; compress_prog = .*$/compress_prog = bzip2/g' /etc/crm/crm.conf"
 	else
 	  docker_exec $node_name "useradd -m -s /bin/bash alice 2>/dev/null"
 	  docker_exec $node_name "echo \"alice ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/alice"
@@ -431,7 +411,7 @@ run_origin_regression_test() {
 
 prepare_coverage_env() {
 	for node in $*; do
-            docker exec -t $node /bin/sh -c 'sed -i '\''1a\import coverage\nimport atexit\ncov=coverage.Coverage(config_file="/opt/crmsh/test/features/coveragerc")\natexit.register(lambda:(cov.stop(),cov.save()))\ncov.start()'\'' /usr/sbin/crm'
+            docker cp "$PROJECT_PATH"/test/features/coverage/sitecustomize.py "$node":/usr/lib/python3.11/site-packages/sitecustomize.py
 	done
 }
 

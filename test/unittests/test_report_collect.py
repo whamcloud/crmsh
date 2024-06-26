@@ -346,35 +346,33 @@ PCMK_logfile=/var/log/pacemaker/pacemaker.log
             mock.call("data2", f"/workdir/{constants.CRM_VERIFY_F}")
         ])
 
-    @mock.patch('crmsh.report.collect.logger', spec=crmsh.log.DEBUG2Logger)
-    @mock.patch('crmsh.report.collect.sh.cluster_shell')
-    def test_collect_ratraces_return(self, mock_run, mock_logger):
-        mock_run_inst = mock.Mock()
-        mock_run.return_value = mock_run_inst
-        mock_run_inst.get_rc_stdout_stderr_without_input.return_value = (0, "data", None)
-        mock_ctx_inst = mock.Mock(node_list=["node1"])
-        collect.collect_ratraces(mock_ctx_inst)
-        mock_logger.debug2.assert_not_called()
-
     @mock.patch('crmsh.report.utils.real_path')
     @mock.patch('crmsh.report.collect.logger', spec=crmsh.log.DEBUG2Logger)
     @mock.patch('shutil.copy2')
     @mock.patch('crmsh.utils.mkdirp')
     @mock.patch('crmsh.report.utils.find_files_in_timespan')
-    @mock.patch('crmsh.report.collect.sh.cluster_shell')
-    def test_collect_ratraces(self, mock_run, mock_find, mock_mkdirp, mock_copy, mock_logger, mock_real_path):
+    def test_collect_ratraces(self, mock_find, mock_mkdirp, mock_copy, mock_logger, mock_real_path):
         mock_real_path.return_value = "/var/log"
-        mock_run_inst = mock.Mock()
-        mock_run.return_value = mock_run_inst
         data = "INFO: Trace for .* is written to /var/log/cluster/pacemaker.log"
-        mock_run_inst.get_rc_stdout_stderr_without_input.return_value = (0, data, None)
-        mock_ctx_inst = mock.Mock(node_list=["node1"], work_dir="/opt/work")
-        mock_find.return_value = ["/var/log/cluster"]
+        mock_ctx_inst = mock.Mock(
+            work_dir="/opt/work",
+            trace_dir_list="/var/lib/heartbeat/trace_ra",
+        )
+        mock_find.return_value = [
+            "/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.monitor.2024-02-26.15:21:39",
+            "/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.start.2024-02-26.15:21:39",
+            "/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.stop.2024-02-26.15:21:46",
+        ]
 
         collect.collect_ratraces(mock_ctx_inst)
 
-        mock_logger.debug2.assert_called_once_with('Looking for RA trace files in "%s"', '/var/log/cluster')
-        mock_logger.debug.assert_called_once_with(f'Dump RA trace files into {mock_real_path.return_value}')
+        mock_mkdirp.assert_called_with('/opt/work/trace_ra/IPaddr2')
+        mock_copy.assert_has_calls([
+            mock.call("/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.monitor.2024-02-26.15:21:39", '/opt/work/trace_ra/IPaddr2'),
+            mock.call("/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.start.2024-02-26.15:21:39", '/opt/work/trace_ra/IPaddr2'),
+            mock.call("/var/lib/heartbeat/trace_ra/IPaddr2/admin-ip.stop.2024-02-26.15:21:46", '/opt/work/trace_ra/IPaddr2'),
+        ])
+        mock_logger.debug.assert_called_with(f'Dump RA trace files into {mock_real_path.return_value}')
 
     @mock.patch('crmsh.report.collect.ShellUtils')
     def test_lsof_ocfs2_device(self, mock_run):
@@ -550,12 +548,19 @@ id            0x19041a12
         ]
         mock_run_inst = mock.Mock()
         mock_run.return_value = mock_run_inst
-        mock_run_inst.get_stdout_or_raise_error.side_effect = ["crm_mon_data", "cib_data", "crm_node_data"]
+        mock_run_inst.get_stdout_or_raise_error.side_effect = [
+                "crm_mon_data_r1",
+                "crm_mon_data_n1",
+                "crm_mon_data_rf1",
+                "crm_mon_data_rnt1",
+                "cib_data",
+                "crm_node_data"
+                ]
         mock_get_dc.return_value = "node1"
         mock_this_node.return_value = "node1"
         collect.dump_runtime_state("/opt/workdir")
         mock_debug.assert_has_calls([
-            mock.call(f"Dump cluster state into {constants.CRM_MON_F}"),
+            mock.call(f"Dump crm_mon state into {constants.CRM_MON_F}"),
             mock.call(f"Dump CIB contents into {constants.CIB_F}"),
             mock.call(f"Dump members of this partition into {constants.MEMBERSHIP_F}"),
             mock.call(f"Current DC is node1; Touch file 'DC' in workdir")
@@ -586,3 +591,22 @@ id            0x19041a12
         mock_get_cmd_output.return_value = "data"
         collect.collect_corosync_blackbox(mock_ctx_inst)
         mock_debug.assert_called_once_with(f"Dump corosync blackbox info into {constants.COROSYNC_RECORDER_F}")
+
+    @mock.patch('logging.Logger.debug')
+    @mock.patch('crmsh.report.utils.real_path')
+    @mock.patch('crmsh.utils.str2file')
+    @mock.patch('crmsh.corosync.query_qnetd_status')
+    @mock.patch('crmsh.corosync.query_qdevice_status')
+    @mock.patch('crmsh.service_manager.ServiceManager')
+    @mock.patch('crmsh.corosync.query_quorum_status')
+    def test_collect_qdevice_info(self, mock_quorum, mock_service, mock_qdevice, mock_qnetd, mock_str2file, mock_real_path, mock_debug):
+        mock_ctx_inst = mock.Mock(work_dir="/opt/workdir")
+        mock_service_inst = mock.Mock()
+        mock_service.return_value = mock_service_inst
+        mock_service_inst.service_is_active.return_value = True
+        mock_quorum.return_value = "quorum_data"
+        mock_qdevice.return_value = "qdevice_data"
+        mock_qnetd.return_value = "qnetd_data"
+        mock_real_path.return_value = "/opt/workdir/qdevice.txt"
+        collect.collect_qdevice_info(mock_ctx_inst)
+        mock_debug.assert_called_once_with(f"Dump quorum/qdevice/qnetd information into {mock_real_path.return_value}")

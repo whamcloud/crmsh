@@ -14,7 +14,7 @@ from . import options
 from . import userdir
 from . import utils
 from .sh import ShellUtils
-from .utils import stdout2list, is_program, is_process, to_ascii
+from .utils import stdout2list, is_program, to_ascii
 from .utils import os_types_list
 from .utils import crm_msec, crm_time_cmp
 from . import log
@@ -27,18 +27,6 @@ logger = log.setup_logger(__name__)
 # Resource Agents interface (meta-data, parameters, etc)
 #
 
-lrmadmin_prog = "lrmadmin"
-
-
-def lrmadmin(opts, xml=False):
-    """
-    Get information directly from lrmd using lrmadmin.
-    """
-    _rc, l = stdout2list("%s %s" % (lrmadmin_prog, opts))
-    if l and not xml:
-        l = l[1:]  # skip the first line
-    return l
-
 
 def crm_resource(opts):
     '''
@@ -46,26 +34,6 @@ def crm_resource(opts):
     '''
     _rc, l = stdout2list("crm_resource %s" % opts, stderr_on=False)
     return l
-
-
-@utils.memoize
-def can_use_lrmadmin():
-    from distutils import version
-    # after this glue release all users can get meta-data and
-    # similar from lrmd
-    minimum_glue = "1.0.10"
-    _rc, glue_ver = ShellUtils().get_stdout("%s -v" % lrmadmin_prog, stderr_on=False)
-    if not glue_ver:  # lrmadmin probably not found
-        return False
-    v_min = version.LooseVersion(minimum_glue)
-    v_this = version.LooseVersion(glue_ver)
-    if v_this < v_min:
-        return False
-    if userdir.getuser() not in ("root", config.path.crm_daemon_user):
-        return False
-    if not (is_program(lrmadmin_prog) and is_process(pacemaker_execd())):
-        return False
-    return utils.ext_cmd(">/dev/null 2>&1 %s -C" % lrmadmin_prog) == 0
 
 
 @utils.memoize
@@ -82,10 +50,9 @@ def ra_classes():
         return cache.retrieve("ra_classes")
     if can_use_crm_resource():
         l = crm_resource("--list-standards")
-    elif can_use_lrmadmin():
-        l = lrmadmin("-C")
+        l = [x for x in l if x not in ("lsb", "service")]
     else:
-        l = ["heartbeat", "lsb", "nagios", "ocf", "stonith", "systemd"]
+        l = ["ocf", "stonith", "systemd"]
     l.sort()
     return cache.store("ra_classes", l)
 
@@ -100,8 +67,6 @@ def ra_providers(ra_type, ra_class="ocf"):
             logger.error("no providers for class %s", ra_class)
             return []
         l = crm_resource("--list-ocf-alternatives %s" % ra_type)
-    elif can_use_lrmadmin():
-        l = lrmadmin("-P %s %s" % (ra_class, ra_type), True)
     else:
         l = []
         if ra_class == "ocf":
@@ -161,9 +126,6 @@ def os_types(ra_class):
         l = os_types_list("/etc/init.d/*")
     elif ra_class == "stonith":
         l = stonith_types()
-    elif ra_class == "nagios":
-        l = [x.replace("check_", "")
-             for x in os_types_list("%s/check_*" % config.path.nagios_plugins)]
     elif ra_class == "systemd":
         l = systemd_types()
     l = list(set(l))
@@ -182,8 +144,6 @@ def ra_types(ra_class="ocf", ra_provider=""):
         """
         if can_use_crm_resource():
             l = crm_resource("--list-agents %s" % ra_class)
-        elif can_use_lrmadmin():
-            l = lrmadmin("-T %s" % ra_class)
         else:
             l = os_types(ra_class)
         return l
@@ -212,8 +172,6 @@ def ra_meta(ra_class, ra_type, ra_provider):
         if ra_provider:
             return crm_resource("--show-metadata %s:%s:%s" % (ra_class, ra_provider, ra_type))
         return crm_resource("--show-metadata %s:%s" % (ra_class, ra_type))
-    elif can_use_lrmadmin():
-        return lrmadmin("-M %s %s %s" % (ra_class, ra_type, ra_provider), True)
     else:
         l = []
         if ra_class == "ocf":
@@ -224,9 +182,6 @@ def ra_meta(ra_class, ra_type, ra_provider):
                 _rc, l = stdout2list("/usr/sbin/%s -o metadata" % ra_type)
             else:
                 _rc, l = stdout2list("stonith -m -t %s" % ra_type)
-        elif ra_class == "nagios":
-            _rc, l = stdout2list("%s/check_%s --metadata" %
-                                 (config.path.nagios_plugins, ra_type))
         return l
 
 
@@ -238,7 +193,7 @@ def get_pe_meta():
 @utils.memoize
 def get_crmd_meta():
     return RAInfo(utils.pacemaker_controld(), "metadata",
-                  exclude_from_completion=constants.crmd_metadata_do_not_complete)
+                  exclude_from_completion=constants.controld_metadata_do_not_complete)
 
 
 @utils.memoize
@@ -253,6 +208,13 @@ def get_cib_meta():
 
 @utils.memoize
 def get_properties_meta():
+    cluster_option_meta = utils.get_cluster_option_metadata()
+    if cluster_option_meta:
+        return RAInfo("cluster_option", None,
+                      exclude_from_completion=constants.controld_metadata_do_not_complete,
+                      meta_string=cluster_option_meta)
+    # get_xxx_meta() is a legacy code to get the metadata of the pacemaker daemons, 
+    # which will be dropped when we fully adopt to crmsh-5.x with pacemaker 3.x.
     meta = copy.deepcopy(get_crmd_meta())
     meta.add_ra_params(get_pe_meta())
     meta.add_ra_params(get_cib_meta())
@@ -265,6 +227,23 @@ def get_properties_list():
         return list(get_properties_meta().params().keys())
     except:
         return []
+
+
+@utils.memoize
+def get_resource_meta():
+    resource_meta = utils.get_resource_metadata()
+    if resource_meta:
+        return RAInfo("resource_meta", None, meta_string=resource_meta)
+    return None
+
+
+@utils.memoize
+def get_resource_meta_list():
+    try:
+        return list(get_resource_meta().params().keys())
+    # use legacy code to get the resource metadata list
+    except:
+        return constants.rsc_meta_attributes
 
 
 def prog_meta(prog):
@@ -308,7 +287,7 @@ class RAInfo(object):
     skip_ops = ("meta-data", "validate-all")
     skip_op_attr = ("name",)
 
-    def __init__(self, ra_class, ra_type, ra_provider="heartbeat", exclude_from_completion=None):
+    def __init__(self, ra_class, ra_type, ra_provider="heartbeat", exclude_from_completion=None, meta_string=None):
         self.excluded_from_completion = exclude_from_completion or []
         self.ra_class = ra_class
         self.ra_type = ra_type
@@ -317,6 +296,7 @@ class RAInfo(object):
             self.ra_provider = "heartbeat"
         self.ra_elem = None
         self.broken_ra = False
+        self.meta_string = meta_string
 
     def __str__(self):
         return "%s:%s:%s" % (self.ra_class, self.ra_provider, self.ra_type) \
@@ -686,8 +666,8 @@ class RAInfo(object):
         sid = "ra_meta-%s" % self
         if cache.is_cached(sid):
             return cache.retrieve(sid)
-        if self.ra_class in constants.meta_progs:
-            l = prog_meta(self.ra_class)
+        if self.meta_string:
+            l = self.meta_string.split('\n')
         elif self.ra_class in constants.meta_progs_20:
             l = prog_meta(self.ra_class)
         else:
@@ -699,6 +679,8 @@ class RAInfo(object):
         except Exception:
             self.error("Cannot parse meta-data XML")
             return None
+        if xml.tag == "pacemaker-result":
+            xml = xml.xpath("//resource-agent")[0]
         self.debug("read and cached meta-data")
         return cache.store(sid, xml)
 
@@ -760,9 +742,28 @@ class RAInfo(object):
             return ""
         l = [head]
         longdesc = get_nodes_text(n, "longdesc")
+        select_values = self.get_selecte_value_list(n)
+        if n.get("advanced") == "1":
+            l.append(self.ra_tab + "*** Advanced Use Only ***")
+        if n.get("generated") == "1":
+            l.append(self.ra_tab + "*** Automatically generated by pacemaker ***")
+        if n.find("deprecated") is not None:
+            l.append(self.ra_tab + "*** Deprecated ***")
         if longdesc:
-            l.append(self.ra_tab + longdesc.replace("\n", "\n" + self.ra_tab) + '\n')
+            l.append(self.ra_tab + longdesc.replace("\n", "\n" + self.ra_tab))
+        if select_values:
+            l.append(self.ra_tab + "Allowed values: " + ', '.join(select_values))
+        l.append('')
         return '\n'.join(l)
+
+    def get_selecte_value_list(self, node):
+        """
+        Get the list of select values from the node
+        """
+        content = node.find("content")
+        if content is None:
+            return []
+        return [x.get("value") for x in content.findall("option")]
 
     def meta_parameter(self, param):
         if self.mk_ra_node() is None:
@@ -864,7 +865,10 @@ def disambiguate_ra_type(s):
     elif len(l) == 2:
         cl, tp = l
     else:
-        cl, tp = "ocf", l[0]
+        if l[0].startswith("fence_"):
+            cl, tp = "stonith", l[0]
+        else:
+            cl, tp = "ocf", l[0]
     pr = pick_provider(ra_providers(tp, cl)) if cl == 'ocf' else ''
     return cl, pr, tp
 

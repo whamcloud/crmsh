@@ -25,17 +25,19 @@ from . import constants
 
 
 from . import log
+from .utils import TerminateSubCommand
+
 logger = log.setup_logger(__name__)
 
 
 def parse_options(parser, args):
     try:
         options, args = parser.parse_known_args(list(args))
-    except:
+    except Exception:
         return None, None
     if hasattr(options, 'help') and options.help:
         parser.print_help()
-        return None, None
+        raise TerminateSubCommand(success=True)
     utils.check_empty_option_value(options)
     return options, args
 
@@ -170,14 +172,14 @@ class Cluster(command.UI):
         '''
         Starts the cluster stack on all nodes or specific node(s)
         '''
+        node_list = parse_option_for_nodes(context, *args)
         service_check_list = ["pacemaker.service"]
         start_qdevice = False
-        if utils.is_qdevice_configured():
+        if corosync.is_qdevice_configured():
             start_qdevice = True
             service_check_list.append("corosync-qdevice.service")
 
         service_manager = ServiceManager()
-        node_list = parse_option_for_nodes(context, *args)
         for node in node_list[:]:
             if all([service_manager.service_is_active(srv, remote_addr=node) for srv in service_check_list]):
                 logger.info("The cluster stack already started on {}".format(node))
@@ -292,7 +294,7 @@ class Cluster(command.UI):
         node_list = parse_option_for_nodes(context, *args)
         service_manager = ServiceManager()
         node_list = service_manager.enable_service("pacemaker.service", node_list=node_list)
-        if service_manager.service_is_available("corosync-qdevice.service") and utils.is_qdevice_configured():
+        if service_manager.service_is_available("corosync-qdevice.service") and corosync.is_qdevice_configured():
             service_manager.enable_service("corosync-qdevice.service", node_list=node_list)
         for node in node_list:
             logger.info("Cluster services enabled on %s", node)
@@ -329,12 +331,6 @@ class Cluster(command.UI):
         '''
         Initialize a cluster.
         '''
-        def looks_like_hostnames(lst):
-            sectionlist = bootstrap.INIT_STAGES
-            return all(not (l.startswith('-') or l in sectionlist) for l in lst)
-        if len(args) > 0:
-            if '--dry-run' in args or looks_like_hostnames(args):
-                args = ['--yes', '--nodes'] + [arg for arg in args if arg != '--dry-run']
         parser = ArgumentParser(description="""
 Initialize a cluster from scratch. This command configures
 a complete cluster, and can also add additional cluster
@@ -348,8 +344,6 @@ Stage can be one of:
     sbd         Configure SBD (requires -s <dev>)
     cluster     Bring the cluster online
     ocfs2       Configure OCFS2 (requires -o <dev>) NOTE: this is a Technical Preview
-    vgfs        Create volume group and filesystem (ocfs2 template only,
-                    requires -o <dev>) NOTE: this stage is an alias of ocfs2 stage
     admin       Create administration virtual IP (optional)
     qdevice     Configure qdevice and qnetd
 
@@ -414,27 +408,20 @@ Examples:
                             help="Use the given watchdog device or driver name")
         parser.add_argument("-x", "--skip-csync2-sync", dest="skip_csync2", action="store_true",
                             help="Skip csync2 initialization (an experimental option)")
-        parser.add_argument("--no-overwrite-sshkey", action="store_true", dest="no_overwrite_sshkey",
-                            help='Avoid "/root/.ssh/id_rsa" overwrite if "-y" option is used (False by default; Deprecated)')
         parser.add_argument('--use-ssh-agent', action='store_true', dest='use_ssh_agent',
                             help="Use an existing key from ssh-agent instead of creating new key pairs")
 
         network_group = parser.add_argument_group("Network configuration", "Options for configuring the network and messaging layer.")
-        network_group.add_argument("-i", "--interface", dest="nic_list", metavar="IF", action=CustomAppendAction, choices=utils.interface_choice(), default=[],
-                                   help="Bind to IP address on interface IF. Use -i second time for second interface")
-        network_group.add_argument("-u", "--unicast", action="store_true", dest="unicast",
-                                   help="Configure corosync to communicate over unicast(udpu). This is the default transport type")
-        network_group.add_argument("-U", "--multicast", action="store_true", dest="multicast",
-                                   help="Configure corosync to communicate over multicast. Default is unicast")
+        network_group.add_argument("-i", "--interface", dest="nic_addr_list", metavar="IF", action=CustomAppendAction, default=[], help=constants.INTERFACE_HELP)
+        network_group.add_argument("-t", "--transport", dest="transport", metavar="TRANSPORT", default="knet", choices=['knet', 'udpu', 'udp'],
+                help="The transport mechanism. Allowed value is knet(kronosnet)/udpu(unicast)/udp(multicast). Default is knet")
         network_group.add_argument("-A", "--admin-ip", dest="admin_ip", metavar="IP",
                                    help="Configure IP address as an administration virtual IP")
-        network_group.add_argument("-M", "--multi-heartbeats", action="store_true", dest="second_heartbeat",
-                                   help="Configure corosync with second heartbeat line")
         network_group.add_argument("-I", "--ipv6", action="store_true", dest="ipv6",
                                    help="Configure corosync use IPv6")
 
         qdevice_group = parser.add_argument_group("QDevice configuration", re.sub('  ', '', constants.QDEVICE_HELP_INFO) + "\n\nOptions for configuring QDevice and QNetd.")
-        qdevice_group.add_argument("--qnetd-hostname", dest="qnetd_addr", metavar="[USER@]HOST",
+        qdevice_group.add_argument("--qnetd-hostname", dest="qnetd_addr_input", metavar="[USER@]HOST",
                                    help="User and host of the QNetd server. The host can be specified in either hostname or IP address.")
         qdevice_group.add_argument("--qdevice-port", dest="qdevice_port", metavar="PORT", type=int, default=5403,
                                    help="TCP PORT of QNetd server (default:5403)")
@@ -466,13 +453,8 @@ Examples:
         stage = ""
         if len(args):
             stage = args[0]
-        if stage == "vgfs":
-            stage = "ocfs2"
-            logger.warning("vgfs stage was deprecated and is an alias of ocfs2 stage now")
-        if stage not in bootstrap.INIT_STAGES and stage != "":
-            parser.error("Invalid stage (%s)" % (stage))
 
-        if options.qnetd_addr:
+        if options.qnetd_addr_input:
             if not ServiceManager().service_is_available("corosync-qdevice.service"):
                 utils.fatal("corosync-qdevice.service is not available")
             if options.qdevice_heuristics_mode and not options.qdevice_heuristics:
@@ -527,7 +509,6 @@ Examples:
         parser.add_argument("-h", "--help", action="store_true", dest="help", help="Show this help message")
         parser.add_argument("-q", "--quiet", help="Be quiet (don't describe what's happening, just do it)", action="store_true", dest="quiet")
         parser.add_argument("-y", "--yes", help='Answer "yes" to all prompts (use with caution)', action="store_true", dest="yes_to_all")
-        parser.add_argument("-w", "--watchdog", dest="watchdog", metavar="WATCHDOG", help="Use the given watchdog device")
         parser.add_argument('--use-ssh-agent', action='store_true', dest='use_ssh_agent',
                             help="Use an existing key from ssh-agent instead of creating new key pairs")
 
@@ -536,8 +517,7 @@ Examples:
             "-c", "--cluster-node", metavar="[USER@]HOST", dest="cluster_node",
             help="User and host to login to an existing cluster node. The host can be specified with either a hostname or an IP.",
         )
-        network_group.add_argument("-i", "--interface", dest="nic_list", metavar="IF", action=CustomAppendAction, choices=utils.interface_choice(), default=[],
-                help="Bind to IP address on interface IF. Use -i second time for second interface")
+        network_group.add_argument("-i", "--interface", dest="nic_addr_list", metavar="IF", action=CustomAppendAction, default=[], help=constants.INTERFACE_HELP)
         options, args = parse_options(parser, args)
         if options is None or args is None:
             return
@@ -545,12 +525,11 @@ Examples:
         stage = ""
         if len(args) == 1:
             stage = args[0]
-        if stage not in ("ssh", "csync2", "ssh_merge", "cluster", ""):
-            parser.error("Invalid stage (%s)" % (stage))
 
         join_context = bootstrap.Context.set_context(options)
         join_context.ui_context = context
         join_context.stage = stage
+        join_context.cluster_is_running = ServiceManager(sh.ClusterShellAdaptorForLocalShell(sh.LocalShell())).service_is_active("pacemaker.service")
         join_context.type = "join"
         join_context.validate_option()
 
@@ -733,6 +712,8 @@ an existing cluster.""",
         parser.add_argument("-y", "--yes", help='Answer "yes" to all prompts (use with caution)', action="store_true", dest="yes_to_all")
         parser.add_argument("-c", "--cluster-node", metavar="[USER@]HOST", help="An already-configured geo cluster or arbitrator", dest="cluster_node")
         parser.add_argument("-s", "--clusters", help="Geo cluster description (see geo-init for details)", dest="clusters", metavar="DESC")
+        parser.add_argument('--use-ssh-agent', action='store_true', dest='use_ssh_agent',
+                            help="Use an existing key from ssh-agent instead of creating new key pairs")
         options, args = parse_options(parser, args)
         if options is None or args is None:
             return

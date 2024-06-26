@@ -1,7 +1,7 @@
 # Copyright (C) 2008-2011 Dejan Muhamedagic <dmuhamedagic@suse.de>
 # Copyright (C) 2013 Kristoffer Gronlund <kgronlund@suse.com>
 # See COPYING for license information.
-
+import os
 import re
 import copy
 import subprocess
@@ -237,7 +237,7 @@ keep the node in standby after reboot. The life time defaults to
     options, args = parser.parse_known_args(args)
     if options.help:
         parser.print_help()
-        raise utils.TerminateSubCommand
+        raise utils.TerminateSubCommand(success=True)
     if options is None or args is None:
         raise utils.TerminateSubCommand
     if options.all and args:
@@ -246,9 +246,12 @@ keep the node in standby after reboot. The life time defaults to
     # return local node
     if (not options.all and not args) or (len(args) == 1 and args[0] == utils.this_node()):
         return [utils.this_node()]
-    member_list = utils.list_cluster_nodes()
+    member_list = utils.list_cluster_nodes() or utils.get_address_list_from_corosync_conf()
     if not member_list:
         context.fatal_error("Cannot get the node list from cluster")
+    for node in args:
+        if node not in member_list:
+            context.fatal_error(f"Node '{node}' is not a member of the cluster")
 
     node_list = member_list if options.all else args
     for node in node_list:
@@ -284,7 +287,6 @@ class NodeMgmt(command.UI):
                    shutdown="0"
        />'""")
     node_clear_state_118 = "stonith_admin --confirm %s"
-    hb_delnode = config.path.hb_delnode + " '%s'"
     crm_node = "crm_node"
     node_fence = "crm_attribute -t status -N '%s' -n terminate -v true"
     dc = "crmadmin -D"
@@ -332,7 +334,9 @@ class NodeMgmt(command.UI):
             xml = find(uname, cfg_nodes)
             state = find(uname, node_states)
             if xml is not None or state is not None:
-                is_offline = state is not None and state.get("crmd") == "offline"
+                is_offline = state is not None and \
+                    (state.get("crmd") == "offline" or \
+                        (state.get("crmd").isdigit() and int(state.get("crmd")) == 0))
                 print_node(*unpack_node_xmldata(xml if xml is not None else state, is_offline))
 
         if node is not None:
@@ -479,6 +483,9 @@ class NodeMgmt(command.UI):
         'usage: fence <node>'
         if not utils.is_name_sane(node):
             return False
+        if not utils.has_stonith_running():
+            logger.error("fence command requires stonith device configured and running")
+            return False
         if not config.core.force and \
                 not utils.ask("Fencing %s will shut down the node and migrate any resources that are running on it! Do you want to fence %s?" % (node, node)):
             return False
@@ -502,13 +509,14 @@ class NodeMgmt(command.UI):
             cib_elem = xmlutil.cibdump2elem()
             if cib_elem is None:
                 return False
-            if cib_elem.xpath("//node_state[@uname=\"%s\"]/@crmd" % node) == ["online"]:
+            crmd = cib_elem.xpath("//node_state[@uname=\"%s\"]/@crmd" % node)
+            if crmd == ["online"] or (crmd[0].isdigit() and int(crmd[0]) != 0):
                 return utils.ext_cmd(self.node_cleanup_resources % node) == 0
-            elif cib_elem.xpath("//node_state[@uname=\"%s\"]/@in_ccm" % node) == ["true"]:
+            in_ccm = cib_elem.xpath("//node_state[@uname=\"%s\"]/@in_ccm" % node)
+            if in_ccm == ["true"] or (in_ccm[0].isdigit() and int(in_ccm[0]) != 0):
                 logger.warning("Node is offline according to Pacemaker, but online according to corosync. First shut down node '%s'", node)
                 return False
-            else:
-                return utils.ext_cmd(self.node_clear_state_118 % node) == 0
+            return utils.ext_cmd(self.node_clear_state_118 % node) == 0
         else:
             return utils.ext_cmd(self.node_clear_state % ("-M -c", node, node)) == 0 and \
                 utils.ext_cmd(self.node_clear_state % ("-R", node, node)) == 0
@@ -551,10 +559,13 @@ class NodeMgmt(command.UI):
         'usage: delete <node>'
         logger.warning('`crm node delete` is deprecated and will very likely be dropped in the near future. It is auto-replaced as `crm cluster remove -c {}`.'.format(node))
         if config.core.force:
-            rc = subprocess.call(['crm', 'cluster', 'remove', '-F', '-c', node])
+            args = ['crm', 'cluster', 'remove', '-F', '-c', node]
         else:
-            rc = subprocess.call(['crm', 'cluster', 'remove', '-c', node])
-        return rc == 0
+            args = ['crm', 'cluster', 'remove', '-c', node]
+        return 0 == subprocess.call(
+            args,
+            env=os.environ,  # bsc#1205925
+        )
 
     @command.wait
     @command.completers(compl.nodes, compl.choice(['set', 'delete', 'show']), _find_attr)

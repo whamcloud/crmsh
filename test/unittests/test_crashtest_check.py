@@ -164,10 +164,7 @@ class TestCheck(TestCase):
         check.check_firewall()
 
         mock_task.assert_called_once_with("Checking firewall")
-        mock_installed.assert_has_calls([
-            mock.call("firewalld"),
-            mock.call("SuSEfirewall2")
-            ])
+        mock_installed.assert_called_once_with("firewalld")
         mock_task_inst.warn.assert_called_once_with("Failed to detect firewall")
 
     @mock.patch('crmsh.service_manager.ServiceManager.service_is_active')
@@ -336,7 +333,7 @@ class TestCheck(TestCase):
         mock_task_inst.run.return_value.__exit__ = mock.Mock()
         mock_fence_info_inst = mock.Mock(fence_enabled=True)
         mock_fence_info.return_value = mock_fence_info_inst
-        mock_run.return_value = (0, "* stonith-sbd  (stonith:external/sbd):  Stopped (disabled)", None)
+        mock_run.return_value = (0, "* stonith-sbd  (stonith:fence_sbd):  Stopped (disabled)", None)
         mock_active.return_value = False
 
         check.check_fencing()
@@ -346,10 +343,10 @@ class TestCheck(TestCase):
         mock_run.assert_called_once_with("crm_mon -r1 | grep '(stonith:.*):'")
         mock_task_inst.info.assert_has_calls([
             mock.call("stonith is enabled"),
-            mock.call("stonith resource stonith-sbd(external/sbd) is configured")
+            mock.call("stonith resource stonith-sbd(fence_sbd) is configured")
             ])
         mock_task_inst.warn.assert_has_calls([
-            mock.call("stonith resource stonith-sbd(external/sbd) is Stopped"),
+            mock.call("stonith resource stonith-sbd(fence_sbd) is Stopped"),
             mock.call("sbd service is not running!")
             ])
 
@@ -364,7 +361,7 @@ class TestCheck(TestCase):
         mock_task_inst.run.return_value.__exit__ = mock.Mock()
         mock_fence_info_inst = mock.Mock(fence_enabled=True)
         mock_fence_info.return_value = mock_fence_info_inst
-        mock_run.return_value = (0, "* stonith-sbd  (stonith:external/sbd):  Started node2", None)
+        mock_run.return_value = (0, "* stonith-sbd  (stonith:fence_sbd):  Started node2", None)
         mock_active.return_value = True
 
         check.check_fencing()
@@ -374,8 +371,8 @@ class TestCheck(TestCase):
         mock_run.assert_called_once_with("crm_mon -r1 | grep '(stonith:.*):'")
         mock_task_inst.info.assert_has_calls([
             mock.call("stonith is enabled"),
-            mock.call("stonith resource stonith-sbd(external/sbd) is configured"),
-            mock.call("stonith resource stonith-sbd(external/sbd) is Started"),
+            mock.call("stonith resource stonith-sbd(fence_sbd) is configured"),
+            mock.call("stonith resource stonith-sbd(fence_sbd) is Started"),
             mock.call("sbd service is running")
             ])
         mock_active.assert_called_once_with("sbd")
@@ -463,16 +460,14 @@ Active Resources:
             mock.call("Node 15sp2-2 is UNCLEAN!")
             ])
 
-    @mock.patch('crmsh.crash_test.check.completers.resources_stopped')
-    @mock.patch('crmsh.crash_test.check.completers.resources_started')
+    @mock.patch('crmsh.crash_test.check.completers.resources')
     @mock.patch('crmsh.crash_test.task.TaskCheck')
-    def test_check_resources(self, mock_task, mock_started, mock_stopped):
+    def test_check_resources(self, mock_task, mock_resources):
         mock_task_inst = mock.Mock()
         mock_task.return_value = mock_task_inst
         mock_task_inst.run.return_value.__enter__ = mock.Mock()
         mock_task_inst.run.return_value.__exit__ = mock.Mock()
-        mock_started.return_value = ["r1", "r2"]
-        mock_stopped.return_value = ["r3", "r4"]
+        mock_resources.side_effect = [["r1", "r2"], ["r3", "r4"]]
 
         check.check_resources()
 

@@ -244,9 +244,9 @@ def step_impl(context, node):
 
 @then('IP "{addr}" is used by corosync on "{node}"')
 def step_impl(context, addr, node):
-    _, out, _ = run_command_local_or_remote(context, 'corosync-cfgtool -s', node)
-    res = re.search(r' {}\n'.format(addr), out)
-    assert bool(res) is True
+    nodeid = crmutils.get_nodeid_from_name(node)
+    _, out, _ = run_command_local_or_remote(context, f'corosync-cfgtool -a {nodeid}', node)
+    assert addr in out.split()
 
 
 @then('Cluster name is "{name}"')
@@ -262,9 +262,16 @@ def step_impl(context, addr):
     assert bool(res) is True
 
 
-@then('Cluster is using udpu transport mode')
-def step_impl(context):
-    assert corosync.get_value('totem.transport') == 'udpu'
+@then('Cluster is using "{transport_type}" transport mode')
+def step_impl(context, transport_type):
+    assert corosync.get_value('totem.transport') == transport_type
+    _, out, _ = run_command(context, 'corosync-cfgtool -s')
+    assert re.search(f'transport {transport_type}\n', out) is not None
+
+
+@then('two_node in corosync.conf is "{number}"')
+def step_impl(context, number):
+    assert corosync.get_value('quorum.two_node') == number
 
 
 @then('Show cluster status on "{addr}"')
@@ -573,3 +580,14 @@ def step_impl(context, target_file):
         return True
     else:
         return False
+
+@given('crm.conf poisoned on nodes [{nodes:str+}]')
+def step_impl(context, nodes):
+    for node in nodes:
+        rc, _, _ = behave_agent.call(
+            node, 1122,
+            f'''mkdir -p /root/.config/crm && cat > /root/.config/crm/crm.conf << EOF
+{const.CRM_CONF_CONTENT_POSIONED}
+EOF''',
+            user='root',
+        )

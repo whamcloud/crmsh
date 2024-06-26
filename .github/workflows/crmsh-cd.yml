@@ -11,21 +11,21 @@ env:
   CONTAINER_IMAGE: nyang23/obs-continuous-delivery:latest
   OBS_USER: ${{ secrets.OBS_USER }}
   OBS_PASS: ${{ secrets.OBS_PASS }}
-  OBS_PROJECT: ${{ secrets.OBS_PROJECT_CRMSH45 }}
-  TARGET_PROJECT: ${{ secrets.TARGET_PROJECT }}
+  OBS_PROJECT: network:ha-clustering:Unstable
+  TARGET_PROJECT: network:ha-clustering:Factory
 
 jobs:
   integration:
-    if: github.repository == 'ClusterLabs/crmsh' && github.ref_name == 'crmsh-4.6'
+    if: github.repository == 'ClusterLabs/crmsh' && github.ref_name == 'master'
     uses: ./.github/workflows/crmsh-ci.yml
+    secrets: inherit
 
   delivery:
-    if: github.repository == 'ClusterLabs/crmsh' && github.ref_name == 'crmsh-4.6'
     needs: integration
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: delivery process
       run: |
         docker pull "${CONTAINER_IMAGE}"
@@ -38,12 +38,11 @@ jobs:
           /bin/bash -c "cp -r /package ~/package && cd ~/package && /scripts/upload.sh"
 
   submit:
-    if: github.repository == 'ClusterLabs/crmsh' && github.ref_name == 'crmsh-4.6'
     needs: delivery
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: submit process
       run: |
         docker pull "${CONTAINER_IMAGE}"

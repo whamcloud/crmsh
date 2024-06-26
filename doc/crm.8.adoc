@@ -178,8 +178,8 @@ crm(live)# node standby node4
   clone conn pingd \
     meta globally-unique=false clone-max=2 clone-node-max=1
   location node_pref internal_www \
-    rule 50: #uname eq node1 \
-    rule pingd: defined pingd
+    rule 50: #uname eq node1 and \
+    defined pingd
   #
   # cluster properties
   #
@@ -219,7 +219,7 @@ clear         locate        move          refresh       status        up
 constraints   ls            operations    restart       stop          utilization
 
 crm(live)configure# primitive fence-1 <TAB><TAB>
-lsb:      ocf:      service:  stonith:  systemd:
+ocf:      stonith:  systemd:
 
 crm(live)configure# primitive fence-1 stonith:<TAB><TAB>
 apcmaster                external/ippower9258     fence_legacy
@@ -794,6 +794,8 @@ Rule expressions can contain multiple expressions connected using the
 boolean operator `or` and `and`. The full syntax for rule expressions
 is listed below.
 
+Note: pacemaker has deprecated support for multiple top-level rules
+within a location constraint since version 2.1.8.
 ..............
 rules ::
   rule [id_spec] [$role=<role>] <score>: <expression>
@@ -824,7 +826,6 @@ duration|date_spec ::
          | weeks=<value>
          | years=<value>
          | weekyears=<value>
-         | moon=<value>
 ..............
 
 [[topics_Lifetime,Lifetime parameter format]]
@@ -1246,33 +1247,6 @@ Corosync is the underlying messaging layer for most HA clusters.
 This level provides commands for editing and managing the corosync
 configuration.
 
-[[cmdhelp_corosync_add-node,Add a corosync node]]
-==== `add-node`
-
-Adds a node to the corosync configuration. This is used with the `udpu`
-type configuration in corosync.
-
-A nodeid for the added node is generated automatically.
-
-Note that this command assumes that only a single ring is used, and
-sets only the address for ring0.
-
-Usage:
-.........
-add-node <addr> [name]
-.........
-
-[[cmdhelp_corosync_del-node,Remove a corosync node]]
-==== `del-node`
-
-Removes a node from the corosync configuration. The argument given is
-the `ring0_addr` address set in the configuration file.
-
-Usage:
-.........
-del-node <addr>
-.........
-
 [[cmdhelp_corosync_diff,Diffs the corosync configuration]]
 ==== `diff`
 
@@ -1399,11 +1373,11 @@ show
 [[cmdhelp_corosync_status,Display the corosync status]]
 ==== `status`
 
-Displays the corosync ring status(default), also can display quorum/qdevice/qnetd status.
+Displays the corosync ring status(default), also can display quorum/qdevice/qnetd/cpg status.
 
 Usage:
 .........
-status [ring|quorum|qdevice|qnetd]
+status [ring|quorum|qdevice|qnetd|cpg]
 .........
 
 [[cmdhelp_cib,CIB shadow management]]
@@ -1564,9 +1538,8 @@ classes
 
 Show the meta-data of a resource agent type. This is where users
 can find information on how to use a resource agent. It is also
-possible to get information from some programs: `pengine`,
-`crmd`, `cib`, and `stonithd`. Just specify the program name
-instead of an RA.
+possible to use the `pacemaker-fenced` type to get the corresponding
+meta-data information.
 
 Usage:
 ...............
@@ -1578,7 +1551,7 @@ Example:
 info apache
 info ocf:pacemaker:Dummy
 info stonith:ipmilan
-info pengine
+info pacemaker-fenced
 ...............
 
 [[cmdhelp_ra_list,list RA for a class (and provider)]]
@@ -2559,7 +2532,6 @@ Commands for resources are:
 - `monitor`
 - `group`
 - `clone` (promotable clones)
-- `ms`/`master` (master-slave) (deprecated)
 
 In order to streamline large configurations, it is possible to
 define a template which can later be referenced in primitives:
@@ -2688,10 +2660,9 @@ A bundle is a single resource specifying the settings, networking
 requirements, and storage requirements for any number of containers
 generated from the same container image.
 
-Pacemaker bundles support Docker (since version 1.1.17) and rkt (since
-version 1.1.18) container technologies.
+Pacemaker bundles support Docker and Podman container technologies.
 
-A bundle must contain exactly one +docker+ or +rkt+ element.
+A bundle must contain exactly one +docker+ or +podman+ element.
 
 The bundle definition may contain a reference to a primitive
 resource which defining the resource running inside the
@@ -2897,7 +2868,7 @@ edit [xml] changed
 ****************************
 The edit command sometimes cannot properly handle modifying
 element ids. In particular for elements which belong to group or
-ms resources. Group and ms resources themselves also cannot be
+promotable resources. Group and promotable resources themselves also cannot be
 renamed. Please use the `rename` command instead.
 ****************************
 
@@ -3093,11 +3064,6 @@ Grouped resources are started in the order they appear in the group,
 and stopped in the reverse order. If a resource in the group cannot
 run anywhere, resources following it in the group will not start.
 
-`group` can be passed the "container" meta attribute, to indicate that
-it is to be used to group VM resources monitored using Nagios. The
-resource referred to by the container attribute must be of type
-`ocf:heartbeat:Xen`, `ocf:heartbeat:VirtualDomain` or `ocf:heartbeat:lxc`.
-
 Usage:
 ...............
 group <name> <rsc> [<rsc>...]
@@ -3111,8 +3077,6 @@ Example:
 ...............
 group internal_www disk0 fs0 internal_ip apache \
   meta target_role=stopped
-
-group vm-and-services vm vm-sshd meta container="vm"
 ...............
 
 [[cmdhelp_configure_load,import the CIB from a file]]
@@ -3146,8 +3110,8 @@ load xml push smallcib.xml
 ==== `location`
 
 `location` defines the preference of nodes for the given
-resource. The location constraints consist of one or more rules
-which specify a score to be awarded if the rule matches.
+resource. The location constraints are defined by a single rule
+which specifies a score to be awarded if the rule matches.
 
 The resource referenced by the location constraint can be one of the
 following:
@@ -3169,9 +3133,12 @@ For more details on how to configure resource sets, see
 For more information on rule expressions, see
 <<topics_Syntax_RuleExpressions,Syntax: Rule expressions>>.
 
+Note: pacemaker has deprecated support for multiple top-level rules
+within a location constraint since version 2.1.8.
+
 Usage:
 ...............
-location <id> <rsc> [<attributes>] {<node_pref>|<rules>}
+location <id> <rsc> [<attributes>] {<node_pref>|<rule>}
 
 rsc :: /<rsc-pattern>/
         | { resource_sets }
@@ -3181,9 +3148,8 @@ attributes :: role=<role> | resource-discovery=always|never|exclusive
 
 node_pref :: <score>: <node>
 
-rules ::
+rule ::
   rule [id_spec] [$role=<role>] <score>: <expression>
-  [rule [id_spec] [$role=<role>] <score>: <expression> ...]
 
 id_spec :: $id=<id> | $id-ref=<id>
 score :: <number> | <attribute> | [-]inf
@@ -3210,15 +3176,14 @@ duration|date_spec ::
          | weeks=<value>
          | years=<value>
          | weekyears=<value>
-         | moon=<value>
 ...............
 Examples:
 ...............
 location conn_1 internal_www 100: node1
 
 location conn_1 internal_www \
-  rule 50: #uname eq node1 \
-  rule pingd: defined pingd
+  rule 50: #uname eq node1 and \
+  defined pingd
 
 location conn_2 dummy_float \
   rule -inf: not_defined pingd or pingd number:lte 0
@@ -3266,58 +3231,6 @@ monitor apcfence 60m:60s
 Note that after executing the command, the monitor operation may
 be shown as part of the primitive definition.
 
-[[cmdhelp_configure_ms,define a master-slave resource (deprecated)]]
-==== `ms` (`master`)
-
-The `ms` command creates a master/slave resource type. It may contain a
-single primitive resource or one group of resources.
-
-Usage:
-...............
-ms <name> <rsc>
-  [description=<description>]
-  [meta attr_list]
-  [params attr_list]
-
-attr_list :: [$id=<id>] <attr>=<val> [<attr>=<val>...] | $id-ref=<id>
-...............
-Example:
-...............
-ms disk1 drbd1 \
-  meta notify=true globally-unique=false
-...............
-
-.Note on `ms` deprecated
-****************************
-From Pacemaker-2.0, the resource type referred to as "master/slave",
-"stateful", or "multi-state" is no longer a separate resource type,
-but a variation of clone now referred to as a "promotable clone".
-For backward compatibility, above configurations are also accepted.
-...............
-clone disk1 drbd1 \
-  meta promotable=true notify=true globally-unique=false
-...............
-****************************
-
-.Note on `id-ref` usage
-****************************
-Instance or meta attributes (`params` and `meta`) may contain
-a reference to another set of attributes. In that case, no other
-attributes are allowed. Since attribute sets' ids, though they do
-exist, are not shown in the `crm`, it is also possible to
-reference an object instead of an attribute set. `crm` will
-automatically replace such a reference with the right id:
-
-...............
-crm(live)configure# primitive a2 www-2 meta $id-ref=a1
-crm(live)configure# show a2
-primitive a2 apache \
-    meta $id-ref=a1-meta_attributes
-    [...]
-...............
-It is advisable to give meaningful names to attribute sets which
-are going to be referenced.
-****************************
 
 [[cmdhelp_configure_node,define a cluster node]]
 ==== `node`
@@ -3506,13 +3419,30 @@ primitive A ocf:pacemaker:Dummy \
     op_meta 1: timeout=60s
 ...............
 
+.Note on `id-ref` usage
+****************************
+Instance or meta attributes (`params` and `meta`) may contain
+a reference to another set of attributes. In that case, no other
+attributes are allowed. Since attribute sets' ids, though they do
+exist, are not shown in the `crm`, it is also possible to
+reference an object instead of an attribute set. `crm` will
+automatically replace such a reference with the right id:
+
+...............
+crm(live)configure# primitive a2 www-2 meta $id-ref=a1
+crm(live)configure# show a2
+primitive a2 apache \
+    meta $id-ref=a1-meta_attributes
+    [...]
+...............
+It is advisable to give meaningful names to attribute sets which
+are going to be referenced.
+****************************
+
 [[cmdhelp_configure_property,set a cluster property]]
 ==== `property`
 
-Set cluster configuration properties. To list the
-available cluster configuration properties, use the
-<<cmdhelp_ra_info,`ra info`>> command with +pengine+, +crmd+,
-+cib+ and +stonithd+ as arguments.
+Set cluster configuration properties.
 When setting the +maintenance-mode+ property, it will
 inform the user if there are nodes or resources that
 have the +maintenance+ property.
@@ -3746,7 +3676,7 @@ The order of resources is significant: it is assumed that later
 resources depend on earlier ones.
 
 If a resource is multi-state, it is assumed that the role on
-which later resources depend is master.
+which later resources depend is Promoted.
 
 Tests are run sequentially to prevent running the same resource
 on two or more nodes. Tests are carried out only if none of the
@@ -3907,7 +3837,7 @@ show [xml] [<id>
            | obscure:<glob>
            ...]
 
-type :: node | primitive | group | clone | ms | rsc_template
+type :: node | primitive | group | clone | rsc_template
       | location | colocation | order
       | rsc_ticket
       | property | rsc_defaults | op_defaults
@@ -4827,7 +4757,7 @@ refresh [force]
 Show actions and any failures that happened on all specified
 resources on all nodes. Normally, one gives resource names as
 arguments, but it is also possible to use extended regular
-expressions. Note that neither groups nor clones or master/slave
+expressions. Note that neither groups nor clones or promotable clone
 names are ever logged. The resource command is going to expand
 all of these appropriately, so that clone instances or resources
 which are part of a group are shown.

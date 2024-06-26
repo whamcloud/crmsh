@@ -5,6 +5,31 @@ Feature: Regression test for bootstrap bugs
   Need nodes: hanode1 hanode2 hanode3
 
   @clean
+  Scenario: Stages dependency (bsc#1175865)
+    Given   Cluster service is "stopped" on "hanode1"
+    And     Cluster service is "stopped" on "hanode2"
+    When    Try "crm cluster init cluster -y" on "hanode1"
+    Then    Except "ERROR: cluster.init: Please run 'ssh' stage first"
+    When    Run "crm cluster init ssh -y" on "hanode1"
+    When    Try "crm cluster init cluster -y" on "hanode1"
+    Then    Except "ERROR: cluster.init: Please run 'csync2' stage first"
+    When    Run "crm cluster init csync2 -y" on "hanode1"
+    When    Try "crm cluster init cluster -y" on "hanode1"
+    Then    Except "ERROR: cluster.init: Please run 'corosync' stage first"
+    When    Run "crm cluster init corosync -y" on "hanode1"
+    When    Run "crm cluster init cluster -y" on "hanode1"
+    Then    Cluster service is "started" on "hanode1"
+
+    When    Try "crm cluster join cluster -c hanode1 -y" on "hanode2"
+    Then    Except "ERROR: cluster.join: Please run 'ssh' stage first"
+    When    Try "crm cluster join ssh -c hanode1 -y" on "hanode2"
+    When    Try "crm cluster join cluster -c hanode1 -y" on "hanode2"
+    Then    Except "ERROR: cluster.join: Please run 'csync2' stage first"
+    When    Try "crm cluster join csync2 -c hanode1 -y" on "hanode2"
+    When    Try "crm cluster join cluster -c hanode1 -y" on "hanode2"
+    Then    Cluster service is "started" on "hanode2"
+
+  @clean
   Scenario: Set placement-strategy value as "default"(bsc#1129462)
     Given   Cluster service is "stopped" on "hanode1"
     And     Cluster service is "stopped" on "hanode2"
@@ -36,10 +61,10 @@ Feature: Regression test for bootstrap bugs
     Then    Except "ERROR: cluster.geo_init_arbitrator: Empty value not allowed for dest "cluster_node""
 
   @clean
-  Scenario: Setup cluster with crossed network(udpu only)
+  Scenario: Setup cluster with crossed network
     Given   Cluster service is "stopped" on "hanode1"
     Given   Cluster service is "stopped" on "hanode2"
-    When    Run "crm cluster init -u -i eth0 -y" on "hanode1"
+    When    Run "crm cluster init -i eth0 -y" on "hanode1"
     Then    Cluster service is "started" on "hanode1"
     When    Try "crm cluster join -c hanode1 -i eth1 -y" on "hanode2"
     Then    Cluster service is "stopped" on "hanode2"
@@ -51,7 +76,7 @@ Feature: Regression test for bootstrap bugs
   Scenario: Remove correspond nodelist in corosync.conf while remove(bsc#1165644)
     Given   Cluster service is "stopped" on "hanode1"
     Given   Cluster service is "stopped" on "hanode2"
-    When    Run "crm cluster init -u -i eth1 -y" on "hanode1"
+    When    Run "crm cluster init -i eth1 -y" on "hanode1"
     Then    Cluster service is "started" on "hanode1"
     When    Run "crm cluster join -c hanode1 -i eth1 -y" on "hanode2"
     Then    Cluster service is "started" on "hanode2"
@@ -80,6 +105,7 @@ Feature: Regression test for bootstrap bugs
     And     Online nodes are "hanode1 hanode2 hanode3"
     And     Show cluster status on "hanode1"
     And     File "/etc/corosync/corosync.conf" was synced in cluster
+    And     two_node in corosync.conf is "0"
 
   @clean
   Scenario: Multi nodes join in parallel timed out(bsc#1175976)
@@ -150,6 +176,9 @@ Feature: Regression test for bootstrap bugs
     And     Run "crm cluster start --all" on "hanode1"
     Then    Cluster service is "started" on "hanode1"
     Then    Cluster service is "started" on "hanode2"
+
+    When    Try "crm cluster start xxx"
+    Then    Except "ERROR: cluster.start: Node 'xxx' is not a member of the cluster"
 
   @clean
   Scenario: Can't stop all nodes' cluster service when local node's service is down(bsc#1213889)

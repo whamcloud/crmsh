@@ -189,21 +189,7 @@ def collect_ratraces(context: core.Context) -> None:
     """
     Collect ra trace file from default /var/lib/heartbeat/trace_ra and custom one
     """
-    # since the "trace_dir" attribute been removed from cib after untrace
-    # need to parse crmsh log file to extract custom trace ra log directory on each node
-    if crmsh.user_of_host.instance().use_ssh_agent():
-        shell = sh.ClusterShell(
-            sh.LocalShell(additional_environ={'SSH_AUTH_SOCK': os.environ.get('SSH_AUTH_SOCK', '')}),
-            crmsh.user_of_host.instance(),
-            forward_ssh_agent=True,
-        )
-    else:
-        shell = sh.cluster_shell()
-    log_contents = ""
-    cmd = f"grep 'INFO: Trace for .* is written to ' {log.CRMSH_LOG_FILE}*|grep -v 'collect'"
-    for node in context.node_list:
-        log_contents += shell.get_rc_stdout_stderr_without_input(node, cmd)[1] + "\n"
-    trace_dir_str = ' '.join(list(set(re.findall("written to (.*)/.*", log_contents))))
+    trace_dir_str = ' '.join(context.trace_dir_list)
     if not trace_dir_str:
         return
 
@@ -343,8 +329,26 @@ def dump_runtime_state(workdir: str) -> None:
     Dump runtime state files
     """
     cluster_shell_inst = sh.cluster_shell()
+
+    # Dump the output of 'crm_mon' command with multiple options
+    out = ""
+    for option, desc in [
+        ("-r1", "inactive resources"),
+        ("-n1", "resources grouped by node"),
+        ("-rf1", "resource fail counts"),
+        ("-rnt1", "resource operation history with timing details"),
+    ]:
+        cmd = f"crm_mon {option}"
+        out += f"\n#### Display cluster state and {desc}: {cmd} ####\n"
+        out += cluster_shell_inst.get_stdout_or_raise_error(cmd)
+        out += "\n\n"
+
+    target_f = os.path.join(workdir, constants.CRM_MON_F)
+    crmutils.str2file(out, target_f)
+    logger.debug(f"Dump crm_mon state into {utils.real_path(target_f)}")
+
+    # Dump other runtime state files
     for cmd, f, desc in [
-        ("crm_mon -1", constants.CRM_MON_F, "cluster state"),
         ("cibadmin -Ql", constants.CIB_F, "CIB contents"),
         ("crm_node -p", constants.MEMBERSHIP_F, "members of this partition")
     ]:
@@ -500,3 +504,21 @@ def collect_sys_info(context: core.Context) -> None:
     _file = os.path.join(context.work_dir, constants.SYSINFO_F)
     crmutils.str2file(out_string, _file)
     logger.debug(f"Dump packages and platform info into {utils.real_path(_file)}")
+
+
+def collect_qdevice_info(context: core.Context) -> None:
+    """
+    Collect quorum/qdevice/qnetd information
+    """
+    out_string = f"##### Quorum status #####\n"
+    out_string += corosync.query_quorum_status() + "\n"
+
+    if ServiceManager().service_is_active("corosync-qdevice.service"):
+        out_string += f"\n##### Qdevice status #####\n"
+        out_string += corosync.query_qdevice_status() + "\n"
+        out_string += f"\n##### Qnetd status #####\n"
+        out_string += corosync.query_qnetd_status() + "\n"
+
+    _file = os.path.join(context.work_dir, constants.QDEVICE_F)
+    crmutils.str2file(out_string, _file)
+    logger.debug(f"Dump quorum/qdevice/qnetd information into {utils.real_path(_file)}")

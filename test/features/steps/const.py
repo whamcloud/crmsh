@@ -13,7 +13,7 @@ See the crm(8) man page or call crm help for more details.
 positional arguments:
   SUBCOMMAND
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
   --version             show program's version number and exit
   -f FILE, --file FILE  Load commands from the given file. If a dash (-) is
@@ -62,7 +62,7 @@ a complete cluster, and can also add additional cluster
 nodes to the initial one-node cluster using the --nodes
 option.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution, this is
@@ -79,6 +79,9 @@ options:
                         Use the given watchdog device or driver name
   -x, --skip-csync2-sync
                         Skip csync2 initialization (an experimental option)
+  --no-overwrite-sshkey
+                        Avoid "/root/.ssh/id_rsa" overwrite if "-y" option is
+                        used (False by default; Deprecated)
   --use-ssh-agent       Use an existing key from ssh-agent instead of creating
                         new key pairs
 
@@ -86,16 +89,15 @@ Network configuration:
   Options for configuring the network and messaging layer.
 
   -i IF, --interface IF
-                        Bind to IP address on interface IF. Allowed value is
-                        nic name or IP address. If a nic name is provided, the
-                        first IP of that nic will be used. Use multiple -i for
-                        more links. Note: Only one link is allowed for the non
-                        knet transport type
-  -t TRANSPORT, --transport TRANSPORT
-                        The transport mechanism. Allowed value is
-                        knet(kronosnet)/udpu(unicast)/udp(multicast). Default
-                        is knet
+                        Bind to IP address on interface IF. Use -i second time
+                        for second interface
+  -u, --unicast         Configure corosync to communicate over unicast(udpu).
+                        This is the default transport type
+  -U, --multicast       Configure corosync to communicate over multicast.
+                        Default is unicast
   -A IP, --admin-ip IP  Configure IP address as an administration virtual IP
+  -M, --multi-heartbeats
+                        Configure corosync with second heartbeat line
   -I, --ipv6            Configure corosync use IPv6
 
 QDevice configuration:
@@ -154,6 +156,8 @@ Stage can be one of:
     sbd         Configure SBD (requires -s <dev>)
     cluster     Bring the cluster online
     ocfs2       Configure OCFS2 (requires -o <dev>) NOTE: this is a Technical Preview
+    vgfs        Create volume group and filesystem (ocfs2 template only,
+                    requires -o <dev>) NOTE: this stage is an alias of ocfs2 stage
     admin       Create administration virtual IP (optional)
     qdevice     Configure qdevice and qnetd
 
@@ -212,10 +216,12 @@ current node cannot be a member of a cluster already.
 Pass any node in the existing cluster as the argument
 to the -c option.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution)
+  -w WATCHDOG, --watchdog WATCHDOG
+                        Use the given watchdog device
   --use-ssh-agent       Use an existing key from ssh-agent instead of creating
                         new key pairs
 
@@ -227,11 +233,8 @@ Network configuration:
                         The host can be specified with either a hostname or an
                         IP.
   -i IF, --interface IF
-                        Bind to IP address on interface IF. Allowed value is
-                        nic name or IP address. If a nic name is provided, the
-                        first IP of that nic will be used. Use multiple -i for
-                        more links. Note: Only one link is allowed for the non
-                        knet transport type
+                        Bind to IP address on interface IF. Use -i second time
+                        for second interface
 
 Stage can be one of:
     ssh         Obtain SSH keys from existing cluster node (requires -c <host>)
@@ -261,7 +264,7 @@ thus effectively removing the whole cluster. To remove
 the last node, pass --force argument to crm or set
 the config.core.force option.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution)
@@ -282,7 +285,7 @@ arguments to this command, and then use geo-join and
 geo-init-arbitrator to add the remaining members to
 the geo cluster.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution)
@@ -322,7 +325,7 @@ name set. The cluster name can be set using the --name argument
 to init, or by configuring corosync with the cluster name in
 an existing cluster.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution)
@@ -342,7 +345,7 @@ Configure the current node as a geo arbitrator. The command
 requires an existing geo cluster or geo arbitrator from which
 to get the geo cluster configuration.
 
-options:
+optional arguments:
   -h, --help            Show this help message
   -q, --quiet           Be quiet (don't describe what's happening, just do it)
   -y, --yes             Answer "yes" to all prompts (use with caution)

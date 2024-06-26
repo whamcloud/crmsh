@@ -79,7 +79,9 @@ FILES = [
     '/etc/csync2/key_hagroup',
     '/etc/csync2/csync2.cfg',
     '/etc/corosync/corosync.conf',
-    '/etc/sysconfig/sbd'
+    '/etc/sysconfig/sbd',
+    '/etc/sysconfig/SuSEfirewall2',
+    '/etc/sysconfig/SuSEfirewall2.d/services/cluster'
     ]
 
 

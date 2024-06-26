@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from . import utils, sh
 from . import bootstrap
 from .bootstrap import SYSCONFIG_SBD, SBD_SYSTEMD_DELAY_START_DIR
@@ -73,7 +74,7 @@ class SBDTimeout(object):
         When using diskless SBD with Qdevice, adjust value of sbd_watchdog_timeout
         """
         # add sbd after qdevice started
-        if corosync.is_qdevice_configured() and ServiceManager().service_is_active("corosync-qdevice.service"):
+        if utils.is_qdevice_configured() and ServiceManager().service_is_active("corosync-qdevice.service"):
             qdevice_sync_timeout = utils.get_qdevice_sync_timeout()
             if self.sbd_watchdog_timeout <= qdevice_sync_timeout:
                 watchdog_timeout_with_qdevice = qdevice_sync_timeout + self.QDEVICE_SYNC_TIMEOUT_MARGIN
@@ -267,7 +268,7 @@ class SBDManager(object):
     DISKLESS_SBD_WARNING = "Diskless SBD requires cluster with three or more nodes. If you want to use diskless SBD for 2-node cluster, should be combined with QDevice."
     PARSE_RE = "[; ]"
     DISKLESS_CRM_CMD = "crm configure property stonith-enabled=true stonith-watchdog-timeout={} stonith-timeout={}"
-    SBD_RA = "stonith:fence_sbd"
+    SBD_RA = "stonith:external/sbd"
     SBD_RA_ID = "stonith-sbd"
 
     def __init__(self, context):
@@ -528,9 +529,7 @@ class SBDManager(object):
 
         # disk-based sbd
         if self._get_sbd_device_from_config():
-            devices_param_str = f"params devices=\"{','.join(self._sbd_devices)}\""
-            cmd = f"crm configure primitive {self.SBD_RA_ID} {self.SBD_RA} {devices_param_str}"
-            shell.get_stdout_or_raise_error(cmd)
+            shell.get_stdout_or_raise_error("crm configure primitive {} {}".format(self.SBD_RA_ID, self.SBD_RA))
             utils.set_property("stonith-enabled", "true")
         # disk-less sbd
         else:

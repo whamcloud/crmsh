@@ -19,7 +19,7 @@ logmsg() {
 	echo "$(date): $*" | tee -a "$CRM_DEBUGF" | tee -a "$CRM_LOGF"
 }
 abspath() {
-	echo "$1" | grep -qs '^/' && echo "$1" || echo "$(pwd)/$1"
+	echo "$1" | grep -qs "^/" && echo "$1" || echo "$(pwd)/$1"
 }
 
 usage() {
@@ -97,9 +97,9 @@ setenvironment() {
 
 filter_output() {
 	{ [ -x $common_filter ] && $common_filter || cat;} |
-	{ [ -f $common_exclf ] && grep -E -vf $common_exclf || cat;} |
+	{ [ -f $common_exclf ] && egrep -vf $common_exclf || cat;} |
 	{ [ -x $filterf ] && $filterf || cat;} |
-	{ [ -f $exclf ] && grep -E -vf $exclf || cat;}
+	{ [ -f $exclf ] && egrep -vf $exclf || cat;}
 }
 
 dumpcase() {
@@ -155,7 +155,7 @@ runtestcase() {
 	fi
 	sed -n "/BEGIN testcase $testcase/,\$p" $CRM_LOGF |
 		{ [ -x $log_filter ] && $log_filter || cat;} |
-		grep -E '(CRIT|ERROR):'
+		egrep '(CRIT|ERROR):'
 	logmsg "END testcase $testcase"
 }
 
@@ -175,7 +175,7 @@ for a; do
 	if [ "$a" ] && [ -f "$TESTDIR/$a" ]; then
 		testcase=$a
 		runtestcase
-	elif echo "$a" | grep -q '^set:'; then
+	elif echo "$a" | grep -q "^set:"; then
 		TESTSET="$TESTDIR/$(echo $a | sed 's/set://')"
 		if [ -f "$TESTSET" ]; then
 			while read -r testcase; do

@@ -228,7 +228,7 @@ LOGGING_CFG = {
         },
         "file": {
             "format": "%(asctime)s {} %(name)s: %(levelname)s: %(message)s".format(socket.gethostname()),
-            "datefmt": "%Y-%m-%dT%H:%M:%S%z",
+            "datefmt": "%b %d %H:%M:%S",
         }
     },
     "filters": {
@@ -504,7 +504,7 @@ class LoggerUtils(object):
     def update_err(self, obj_id, cibadm_opt, xml, rc):
         CIB_PERMISSION_DENIED_CODE = 54
         task_table = {"-U": "update", "-D": "delete", "-P": "patch"}
-        task = task_table.get(cibadm_opt, "replace")
+        task = task_table.get(cibadmin_opt, "replace")
         self.logger.error("could not %s %s (rc=%d)", task, obj_id, int(rc))
         if int(rc) == CIB_PERMISSION_DENIED_CODE:
             self.logger.info("Permission denied.")

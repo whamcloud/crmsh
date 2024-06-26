@@ -133,9 +133,9 @@ resource p0 is NOT running
             <nvpair name="stopdelay" value="2" id="p2-instance_attributes-stopdelay"/>
           </instance_attributes>
           <operations>
-            <op name="monitor" timeout="40s" interval="10s" id="p2-monitor-10s"/>
+            <op name="monitor" timeout="30s" interval="10s" id="p2-monitor-10s"/>
             <op name="start" timeout="30s" interval="0s" id="p2-start-0s"/>
-            <op name="stop" timeout="40s" interval="0s" id="p2-stop-0s"/>
+            <op name="stop" timeout="30s" interval="0s" id="p2-stop-0s"/>
           </operations>
         </primitive>
       </clone>
@@ -167,9 +167,9 @@ resource p0 is NOT running
             <nvpair name="stopdelay" value="2" id="p2-instance_attributes-stopdelay"/>
           </instance_attributes>
           <operations>
-            <op name="monitor" timeout="40s" interval="10s" id="p2-monitor-10s"/>
+            <op name="monitor" timeout="30s" interval="10s" id="p2-monitor-10s"/>
             <op name="start" timeout="30s" interval="0s" id="p2-start-0s"/>
-            <op name="stop" timeout="40s" interval="0s" id="p2-stop-0s"/>
+            <op name="stop" timeout="30s" interval="0s" id="p2-stop-0s"/>
           </operations>
         </primitive>
       </clone>
@@ -589,7 +589,6 @@ INFO: Stop tracing p0 for operation stop
 </cib>
 
 .TRY configure group g p0 p3
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .INP: configure
 .INP: _regtest on
 .INP: show xml p0
@@ -779,7 +778,6 @@ INFO: Stop tracing p0 for operation stop
 </cib>
 
 .TRY configure clone cg g
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .INP: configure
 .INP: _regtest on
 .INP: show xml p0
@@ -1127,22 +1125,44 @@ INFO: Stop tracing p0 for operation stop
 .EXT stonithd metadata
 .EXT crm_resource --show-metadata ocf:pacemaker:Dummy
 .EXT crm_resource --show-metadata ocf:heartbeat:Delay
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .TRY configure primitive p3 Dummy
 .EXT crm_resource --show-metadata ocf:heartbeat:Dummy
 .EXT crm_resource --show-metadata stonith:null
 .EXT stonithd metadata
 .EXT crm_resource --show-metadata ocf:pacemaker:Dummy
 .EXT crm_resource --show-metadata ocf:heartbeat:Delay
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .TRY resource stop p3
 .TRY resource start p3
+.TRY resource cleanup
+.EXT crm_resource --cleanup
+.TRY resource cleanup p3
+.EXT crm_resource --cleanup --resource p3
+.TRY resource cleanup p3 node1
+.EXT crm_resource --cleanup --resource p3 --node node1
+.TRY resource cleanup force
+.EXT crm_resource --cleanup --force
+.TRY resource cleanup p3 force
+.EXT crm_resource --cleanup --resource p3 --force
+.TRY resource cleanup p3 node1 force
+.EXT crm_resource --cleanup --resource p3 --node node1 --force
+.TRY resource refresh
+.EXT crm_resource --refresh
+.TRY resource refresh p3
+.EXT crm_resource --refresh --resource p3
+.TRY resource refresh p3 node1
+.EXT crm_resource --refresh --resource p3 --node node1
+.TRY resource refresh force
+.EXT crm_resource --refresh --force
+.TRY resource refresh p3 force
+.EXT crm_resource --refresh --resource p3 --force
+.TRY resource refresh p3 node1 force
+.EXT crm_resource --refresh --resource p3 --node node1 --force
 .TRY resource stop p3
 .TRY configure rm cg
 WARNING: This command 'rm' is deprecated, please use 'delete'
 INFO: "rm" is accepted as "delete"
-.TRY configure clone msg g meta promotable=true
-.EXT crm_resource --list-options=primitive --all --output-as=xml
+.TRY configure ms msg g
+WARNING: "ms" is deprecated. Please use "clone msg g meta promotable=true"
 .TRY resource scores
 .EXT crm_simulate -sUL
 2 of 6 resource instances DISABLED and 0 BLOCKED from further action due to failure
@@ -1152,7 +1172,7 @@ Node node1: UNCLEAN (offline)
  st	(stonith:null):	Stopped 
      Stopped: [ node1 ]
      Stopped: [ node1 ]
-p3	(ocf:heartbeat:Dummy):	 Stopped (disabled) 
+ p3	(ocf::heartbeat:Dummy):	Stopped ( disabled ) 
      Stopped: [ node1 ]
 
 Original: node1 capacity:
@@ -1184,9 +1204,7 @@ Remaining: node1 capacity:
 .EXT stonithd metadata
 .EXT crm_resource --show-metadata ocf:pacemaker:Dummy
 .EXT crm_resource --show-metadata ocf:heartbeat:Delay
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .TRY configure group g1 p5
-.EXT crm_resource --list-options=primitive --all --output-as=xml
 .TRY resource manage p5
 .SETENV showobj=p5
 .TRY -F resource maintenance p5 on

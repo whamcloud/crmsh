@@ -22,7 +22,6 @@ import argparse
 import random
 import string
 import grp
-import functools
 import gzip
 import bz2
 import lzma
@@ -30,15 +29,15 @@ from pathlib import Path
 from contextlib import contextmanager, closing
 from stat import S_ISBLK
 from lxml import etree
-from packaging import version
 
 import crmsh.parallax
 import crmsh.user_of_host
-from . import config, sh, corosync
+from . import config, sh
 from . import userdir
 from . import constants
 from . import options
 from . import term
+from distutils.version import LooseVersion
 from .constants import SSH_OPTION
 from . import log
 from .prun import prun
@@ -94,7 +93,6 @@ def memoize(function):
     "Decorator to invoke a function once only for any argument"
     memoized = {}
 
-    @functools.wraps(function)
     def inner(*args):
         if args in memoized:
             return memoized[args]
@@ -182,24 +180,6 @@ def is_program(prog):
         f = os.path.join(p, prog)
         if isexec(f):
             return f
-    return None
-
-
-def get_cluster_option_metadata(show_xml=True) -> str:
-    output_type = "xml" if show_xml else "text"
-    cmd = f"crm_attribute --list-options=cluster --all --output-as={output_type}"
-    rc, out, _ = ShellUtils().get_stdout_stderr(cmd)
-    if rc == 0 and out:
-        return out
-    return None
-
-
-def get_resource_metadata(show_xml=True) -> str:
-    output_type = "xml" if show_xml else "text"
-    cmd = f"crm_resource --list-options=primitive --all --output-as={output_type}"
-    rc, out, _ = ShellUtils().get_stdout_stderr(cmd)
-    if rc == 0 and out:
-        return out
     return None
 
 
@@ -666,10 +646,12 @@ def open_atomic(filepath, mode="r", buffering=-1, fsync=False, encoding=None):
 
     with create_tempfile(dir=os.path.dirname(os.path.abspath(filepath))) as tmppath:
         with open(tmppath, mode, buffering, encoding=encoding) as file:
-            yield file
-            if fsync:
-                file.flush()
-                os.fsync(file.fileno())
+            try:
+                yield file
+            finally:
+                if fsync:
+                    file.flush()
+                    os.fsync(file.fileno())
         os.rename(tmppath, filepath)
 
 
@@ -1221,6 +1203,38 @@ def is_int(s):
         return False
 
 
+def is_process(s):
+    """
+    Returns true if argument is the name of a running process.
+
+    s: process name
+    returns Boolean
+    """
+    from os.path import join, basename
+    # find pids of running processes
+    pids = [pid for pid in os.listdir('/proc') if pid.isdigit()]
+    for pid in pids:
+        try:
+            cmdline = open(join('/proc', pid, 'cmdline'), 'rb').read()
+            procname = basename(to_ascii(cmdline).replace('\x00', ' ').split(' ')[0])
+            if procname == s:
+                return True
+        except EnvironmentError:
+            # a process may have died since we got the list of pids
+            pass
+    return False
+
+
+def print_stacktrace():
+    """
+    Print the stack at the site of call
+    """
+    import traceback
+    import inspect
+    sf = inspect.currentframe().f_back.f_back
+    traceback.print_stack(sf)
+
+
 def edit_file(fname):
     'Edit a file.'
     if not fname:
@@ -1230,27 +1244,31 @@ def edit_file(fname):
     return ext_cmd_nosudo("%s %s" % (config.core.editor, fname))
 
 
-def edit_file_ext(fname: str, validator: typing.Callable[[typing.IO], bool] = None) -> bool:
+def edit_file_ext(fname, template=''):
     '''
     Edit a file via a temporary file.
     Raises IOError on any error.
-
-    returns True if the file was changed
     '''
-    with create_tempfile() as tmpfile:
-        shutil.copyfile(fname, tmpfile)
-        if edit_file(tmpfile) != 0:
-            raise IOError(f"Cannot edit file \"{fname}\"")
-        changed_data = read_from_file(tmpfile)
-        source_data = read_from_file(fname)
-        if changed_data != source_data:
-            if validator and not validator(tmpfile):
-                return False
-            # The original file needs to be replaced atomically
-            str2file(changed_data, fname)
-            return True
-        else:
-            return False
+    if not os.path.isfile(fname):
+        s = template
+    else:
+        s = open(fname).read()
+    filehash = hash(s)
+    tmpfile = str2tmp(s)
+    try:
+        try:
+            if edit_file(tmpfile) != 0:
+                return
+            s = open(tmpfile, 'r').read()
+            if hash(s) == filehash:  # file unchanged
+                return
+            f2 = open(fname, 'w')
+            f2.write(s)
+            f2.close()
+        finally:
+            os.unlink(tmpfile)
+    except OSError as e:
+        raise IOError(e)
 
 
 def need_pager(s, w, h):
@@ -1358,6 +1376,17 @@ def multicolumn(l):
                 s = "%s%-*s" % (s, col_len, l[j])
         if s:
             print(s)
+
+
+def cli_replace_attr(pl, name, new_val):
+    for i, attr in enumerate(pl):
+        if attr[0] == name:
+            attr[1] = new_val
+            return
+
+
+def cli_append_attr(pl, name, val):
+    pl.append([name, val])
 
 
 def lines2cli(s):
@@ -1617,18 +1646,8 @@ def get_cib_attributes(cib_f, tag, attr_l, dflt_l):
     return val_l
 
 
-def is_larger_than_min_version(this_version, min_version):
-    """
-    Compare two version strings
-    """
-    version_re = re.compile(version.VERSION_PATTERN, re.VERBOSE | re.IGNORECASE)
-    match_this_version = version_re.search(this_version)
-    if not match_this_version:
-        raise ValueError(f"Invalid version string: {this_version}")
-    match_min_version = version_re.search(min_version)
-    if not match_min_version:
-        raise ValueError(f"Invalid version string: {min_version}")
-    return version.parse(match_this_version.group(0)) >= version.parse(match_min_version.group(0))
+def is_larger_than_min_version(version, min_version):
+    return LooseVersion(version) >= LooseVersion(min_version)
 
 
 def is_min_pcmk_ver(min_ver, cib_f=None):
@@ -1712,6 +1731,44 @@ def fetch_lifetime_opt(args, iso8601=True):
         if opt in _LIFETIME or (iso8601 and _ISO8601_RE.match(opt)):
             return args.pop()
     return None
+
+
+def list_corosync_node_names():
+    '''
+    Returns list of nodes configured
+    in corosync.conf
+    '''
+    try:
+        cfg = os.getenv('COROSYNC_MAIN_CONFIG_FILE', '/etc/corosync/corosync.conf')
+        lines = open(cfg).read().split('\n')
+        name_re = re.compile(r'\s*name:\s+(.*)')
+        names = []
+        for line in lines:
+            name = name_re.match(line)
+            if name:
+                names.append(name.group(1))
+        return names
+    except Exception:
+        return []
+
+
+def list_corosync_nodes():
+    '''
+    Returns list of nodes configured
+    in corosync.conf
+    '''
+    try:
+        cfg = os.getenv('COROSYNC_MAIN_CONFIG_FILE', '/etc/corosync/corosync.conf')
+        lines = open(cfg).read().split('\n')
+        addr_re = re.compile(r'\s*ring0_addr:\s+(.*)')
+        nodes = []
+        for line in lines:
+            addr = addr_re.match(line)
+            if addr:
+                nodes.append(addr.group(1))
+        return nodes
+    except Exception:
+        return []
 
 
 def get_address_list_from_corosync_conf():
@@ -1970,6 +2027,10 @@ def obscure(obscure_list):
         _obscured_nvpairs = prev
 
 
+def gen_nodeid_from_ipv6(addr):
+    return int(ipaddress.ip_address(addr)) % 1000000000
+
+
 def _cloud_metadata_request(uri, headers={}):
     try:
         import urllib2 as urllib
@@ -2109,9 +2170,19 @@ def valid_port(port):
     return int(port) >= 1024 and int(port) <= 65535
 
 
+def is_qdevice_configured():
+    from . import corosync
+    return corosync.get_value("quorum.device.model") == "net"
+
+
+def is_qdevice_tls_on():
+    from . import corosync
+    return corosync.get_value("quorum.device.net.tls") == "on"
+
+
 def get_nodeinfo_from_cmaptool():
     nodeid_ip_dict = {}
-    rc, out = ShellUtils().get_stdout("corosync-cmapctl -b runtime.members")
+    rc, out = ShellUtils().get_stdout("corosync-cmapctl -b runtime.totem.pg.mrp.srp.members")
     if rc != 0:
         return nodeid_ip_dict
 
@@ -2170,6 +2241,13 @@ def check_empty_option_value(options):
             raise ValueError("Empty value not allowed for dest \"{}\"".format(opt))
 
 
+def interface_choice():
+    _, out = ShellUtils().get_stdout("ip a")
+    # should consider interface format like "ethx@xxx"
+    interface_list = re.findall(r'(?:[0-9]+:) (.*?)(?=: |@.*?: )', out)
+    return [nic for nic in interface_list if nic != "lo"]
+
+
 class IP(object):
     """
     Class to get some properties of IP address
@@ -2217,19 +2295,6 @@ class IP(object):
         """
         return self.ip_address.is_loopback
 
-    @classmethod
-    def is_valid_ip(cls, addr):
-        """
-        Check whether the address is valid IP address
-        """
-        cls_inst = cls(addr)
-        try:
-            cls_inst.ip_address
-        except ValueError:
-            return False
-        else:
-            return True
-
 
 class Interface(IP):
     """
@@ -2270,20 +2335,19 @@ class InterfacesInfo(object):
     Class to collect interfaces information on local node
     """
 
-    def __init__(self, ipv6: bool = False, custom_nic_addr_list: typing.List[str] = []) -> None:
+    def __init__(self, ipv6=False, second_heartbeat=False, custom_nic_list=[]):
         """
         Init function
 
         On init process,
         "ipv6" is provided by -I option
-        "custom_nic_addr_list" is provided by -i option
+        "second_heartbeat" is provided by -M option
+        "custom_nic_list" is provided by -i option
         """
         self.ip_version = 6 if ipv6 else 4
-        self._custom_nic_addr_list = custom_nic_addr_list
+        self.second_heartbeat = second_heartbeat
+        self._default_nic_list = custom_nic_list
         self._nic_info_dict = {}
-        self._ip_nic_dict = {}
-        self._input_nic_list = []
-        self._input_addr_list = []
 
     def get_interfaces_info(self):
         """
@@ -2313,31 +2377,8 @@ class InterfacesInfo(object):
 
         if not self._nic_info_dict:
             raise ValueError("No address configured")
-
-        for nic, inst_list in self._nic_info_dict.items():
-            for inst in inst_list:
-                self._ip_nic_dict[inst.ip] = nic
-
-    def flatten_custom_nic_addr_list(self) -> None:
-        """
-        If NIC or IP is provided by the -i option, convert them to 
-        nic list and address list, and do some validations
-        """
-        for item in self._custom_nic_addr_list:
-            if item in self.nic_list:
-                ip = self.nic_first_ip(item)
-                if ip in self._input_addr_list:
-                    raise ValueError(f"Invalid input '{item}': The same NIC already used")
-                self._input_nic_list.append(item)
-                self._input_addr_list.append(ip)
-            elif IP.is_valid_ip(item):
-                nic = self.get_nic_name_by_addr(item)
-                if nic in self._input_nic_list:
-                    raise ValueError(f"Invalid input '{item}': the IP in the same NIC already used")
-                self._input_nic_list.append(nic)
-                self._input_addr_list.append(item)
-            else:
-                raise ValueError(f"Invalid value '{item}' for -i/--interface option, should be {', '.join(self.nic_list)} or {', '.join(self.ip_list)}")
+        if self.second_heartbeat and len(self._nic_info_dict) == 1:
+            raise ValueError("Cannot configure second heartbeat, since only one address is available")
 
     @property
     def nic_list(self):
@@ -2363,14 +2404,6 @@ class InterfacesInfo(object):
         """
         return [interface.ip for interface in self.interface_list]
 
-    @property
-    def input_nic_list(self) -> typing.List[str]:
-        return self._input_nic_list
-
-    @property
-    def input_addr_list(self) -> typing.List[str]:
-        return self._input_addr_list
-
     @classmethod
     def get_local_ip_list(cls, is_ipv6):
         """
@@ -2389,15 +2422,6 @@ class InterfacesInfo(object):
         cls_inst.get_interfaces_info()
         return addr in cls_inst.ip_list
 
-    def get_nic_name_by_addr(self, addr: str) -> str:
-        """
-        Return NIC name by given local IP address
-        Raise error if this IP is not the local address
-        """
-        if addr not in self.ip_list:
-            raise ValueError(f"'{addr}' is not in the local address: {self.ip_list}")
-        return self._ip_nic_dict[addr]
-
     @property
     def network_list(self):
         """
@@ -2405,21 +2429,56 @@ class InterfacesInfo(object):
         """
         return list(set([interface.network for interface in self.interface_list]))
 
-    def nic_first_ip(self, nic) -> str:
+    def _nic_first_ip(self, nic):
         """
         Get the first IP of specific nic
         """
         return self._nic_info_dict[nic][0].ip
 
-    def get_default_nic_from_route(self) -> str:
+    def get_default_nic_list_from_route(self):
         """
-        Get default nic from route
+        Get default nic list from route
         """
+        if self._default_nic_list:
+            return self._default_nic_list
+
         #TODO what if user only has ipv6 route?
         cmd = "ip -o route show"
-        out = sh.cluster_shell().get_stdout_or_raise_error(cmd)
+        rc, out, err = ShellUtils().get_stdout_stderr(cmd)
+        if rc != 0:
+            raise ValueError(err)
         res = re.search(r'^default via .* dev (.*?) ', out)
-        return res.group(1) if res else self.nic_list[0]
+        if res:
+            self._default_nic_list = [res.group(1)]
+        else:
+            if not self.nic_list:
+                self.get_interfaces_info()
+            logger.warning("No default route configured. Using the first found nic")
+            self._default_nic_list = [self.nic_list[0]]
+        return self._default_nic_list
+
+    def get_default_ip_list(self):
+        """
+        Get default IP list will be used by corosync
+        """
+        if not self._default_nic_list:
+            self.get_default_nic_list_from_route()
+        if not self.nic_list:
+            self.get_interfaces_info()
+
+        _ip_list = []
+        for nic in self._default_nic_list:
+            # in case given interface not exist
+            if nic not in self.nic_list:
+                raise ValueError("Failed to detect IP address for {}".format(nic))
+            _ip_list.append(self._nic_first_ip(nic))
+        # in case -M specified but given one interface via -i
+        if self.second_heartbeat and len(self._default_nic_list) == 1:
+            for nic in self.nic_list:
+                if nic not in self._default_nic_list:
+                    _ip_list.append(self._nic_first_ip(nic))
+                    break
+        return _ip_list
 
 
 def check_text_included(text, target_file, remote=None):
@@ -2751,7 +2810,7 @@ def is_2node_cluster_without_qdevice():
     Check if current cluster has two nodes without qdevice
     """
     current_num = len(list_cluster_nodes())
-    qdevice_num = 1 if corosync.is_qdevice_configured() else 0
+    qdevice_num = 1 if is_qdevice_configured() else 0
     return (current_num + qdevice_num) == 2
 
 

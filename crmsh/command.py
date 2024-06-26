@@ -11,7 +11,6 @@ import re
 from . import help as help_module
 from . import ui_utils
 from . import log
-from . import constants
 
 
 logger = log.setup_logger(__name__)
@@ -424,9 +423,7 @@ Examples:
         '''
         return tab completions
         '''
-        return [x for x in self._children.keys() if
-                x not in self._aliases and
-                x not in constants.HIDDEN_COMMANDS]
+        return [x for x in self._children.keys() if x not in self._aliases]
 
     def get_child(self, child):
         '''

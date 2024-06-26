@@ -25,7 +25,7 @@ from . import cibstatus
 from . import crm_gv
 from . import ui_utils
 from . import userdir
-from .ra import get_ra, get_properties_list, get_pe_meta, get_properties_meta, RAInfo, get_resource_meta_list
+from .ra import get_ra, get_properties_list, get_pe_meta, get_properties_meta, RAInfo
 from .utils import ext_cmd, safe_open_w, pipe_string, safe_close_w, crm_msec
 from .utils import ask, lines2cli, olist
 from .utils import page_string, str2tmp, ensure_sudo_readable
@@ -687,7 +687,7 @@ def fix_node_ids(node, oldnode):
         }
 
     idless = set([
-        'operations', 'fencing-topology', 'network', 'docker', 'podman',
+        'operations', 'fencing-topology', 'network', 'docker', 'podman', 'rkt',
         'storage', 'select', 'select_attributes', 'select_fencing',
         'select_nodes', 'select_resources'
     ])
@@ -1571,7 +1571,7 @@ class CibPrimitive(CibObject):
         if self.node is None:  # eh?
             logger.error("%s: no xml (strange)", self.obj_id)
             return utils.get_check_rc()
-        rc3 = sanity_check_meta(self.obj_id, self.node, get_resource_meta_list())
+        rc3 = sanity_check_meta(self.obj_id, self.node, constants.rsc_meta_attributes)
         if self.obj_type == "primitive":
             r_node = reduce_primitive(self.node)
             if r_node is None:
@@ -1681,7 +1681,7 @@ class CibContainer(CibObject):
         if self.node is None:  # eh?
             logger.error("%s: no xml (strange)", self.obj_id)
             return utils.get_check_rc()
-        l = get_resource_meta_list()
+        l = constants.rsc_meta_attributes
         if self.obj_type == "clone":
             l += constants.clone_meta_attributes
         elif self.obj_type == "ms":
@@ -1717,6 +1717,7 @@ class CibBundle(CibObject):
         "meta_attributes": "meta",
         "docker": "docker",
         "podman": "podman",
+        "rkt": "rkt",
         "network": "network",
         "storage": "storage",
         "primitive": "primitive",
@@ -2044,7 +2045,7 @@ class CibProperty(CibObject):
         elif self.obj_type == "op_defaults":
             l = schema.get('attr', 'op', 'a')
         elif self.obj_type == "rsc_defaults":
-            l = get_resource_meta_list()
+            l = constants.rsc_meta_attributes
         rc = sanity_check_nvpairs(self.obj_id, self.node, l)
         return rc
 
@@ -2410,7 +2411,7 @@ class CibDiff(object):
             rc, mk, upd, rm = calc_sets(s, existing)
             if not rc:
                 return rc
-            rc = factory.set_update(e, mk, upd, rm, upd_type=mode, method=method)
+            rc = cib_factory.set_update(e, mk, upd, rm, upd_type=mode, method=method)
             if not rc:
                 return rc
         return rc
@@ -2716,6 +2717,16 @@ class CibFactory(object):
             logger.error("crm_diff apparently failed to produce the diff (rc=%d)", rc)
             return False
 
+        # for v1 diffs, fall back to non-patching if
+        # any containers are modified, else strip the digest
+        if "<diff" in cib_diff and "digest=" in cib_diff:
+            if not self.can_patch_v1():
+                return self._replace_cib(force)
+            e = etree.fromstring(cib_diff)
+            for tag in e.xpath("/diff"):
+                if "digest" in tag.attrib:
+                    del tag.attrib["digest"]
+            cib_diff = xml_tostring(e)
         logger.debug("Diff: %s", cib_diff)
         rc = pipe_string("%s %s" % (cib_piped, cibadmin_opts),
                          cib_diff.encode('utf-8'))
@@ -2723,6 +2734,23 @@ class CibFactory(object):
             logger_utils.update_err("cib", cibadmin_opts, cib_diff, rc)
             return False
         return True
+
+    def can_patch_v1(self):
+        """
+        The v1 patch format cannot handle reordering,
+        so if there are any changes to any containers
+        or acl tags, don't patch.
+        """
+        def group_changed():
+            for obj in self.cib_objects:
+                if not obj.updated:
+                    continue
+                if obj.obj_type in constants.container_tags:
+                    return True
+                if obj.obj_type in ('user', 'role', 'acl_target', 'acl_group'):
+                    return True
+            return False
+        return not group_changed()
 
     #
     # initialize cib_objects from CIB

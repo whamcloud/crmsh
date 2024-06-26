@@ -172,14 +172,14 @@ class Cluster(command.UI):
         '''
         Starts the cluster stack on all nodes or specific node(s)
         '''
-        node_list = parse_option_for_nodes(context, *args)
         service_check_list = ["pacemaker.service"]
         start_qdevice = False
-        if corosync.is_qdevice_configured():
+        if utils.is_qdevice_configured():
             start_qdevice = True
             service_check_list.append("corosync-qdevice.service")
 
         service_manager = ServiceManager()
+        node_list = parse_option_for_nodes(context, *args)
         for node in node_list[:]:
             if all([service_manager.service_is_active(srv, remote_addr=node) for srv in service_check_list]):
                 logger.info("The cluster stack already started on {}".format(node))
@@ -294,7 +294,7 @@ class Cluster(command.UI):
         node_list = parse_option_for_nodes(context, *args)
         service_manager = ServiceManager()
         node_list = service_manager.enable_service("pacemaker.service", node_list=node_list)
-        if service_manager.service_is_available("corosync-qdevice.service") and corosync.is_qdevice_configured():
+        if service_manager.service_is_available("corosync-qdevice.service") and utils.is_qdevice_configured():
             service_manager.enable_service("corosync-qdevice.service", node_list=node_list)
         for node in node_list:
             logger.info("Cluster services enabled on %s", node)
@@ -344,6 +344,8 @@ Stage can be one of:
     sbd         Configure SBD (requires -s <dev>)
     cluster     Bring the cluster online
     ocfs2       Configure OCFS2 (requires -o <dev>) NOTE: this is a Technical Preview
+    vgfs        Create volume group and filesystem (ocfs2 template only,
+                    requires -o <dev>) NOTE: this stage is an alias of ocfs2 stage
     admin       Create administration virtual IP (optional)
     qdevice     Configure qdevice and qnetd
 
@@ -408,15 +410,22 @@ Examples:
                             help="Use the given watchdog device or driver name")
         parser.add_argument("-x", "--skip-csync2-sync", dest="skip_csync2", action="store_true",
                             help="Skip csync2 initialization (an experimental option)")
+        parser.add_argument("--no-overwrite-sshkey", action="store_true", dest="no_overwrite_sshkey",
+                            help='Avoid "/root/.ssh/id_rsa" overwrite if "-y" option is used (False by default; Deprecated)')
         parser.add_argument('--use-ssh-agent', action='store_true', dest='use_ssh_agent',
                             help="Use an existing key from ssh-agent instead of creating new key pairs")
 
         network_group = parser.add_argument_group("Network configuration", "Options for configuring the network and messaging layer.")
-        network_group.add_argument("-i", "--interface", dest="nic_addr_list", metavar="IF", action=CustomAppendAction, default=[], help=constants.INTERFACE_HELP)
-        network_group.add_argument("-t", "--transport", dest="transport", metavar="TRANSPORT", default="knet", choices=['knet', 'udpu', 'udp'],
-                help="The transport mechanism. Allowed value is knet(kronosnet)/udpu(unicast)/udp(multicast). Default is knet")
+        network_group.add_argument("-i", "--interface", dest="nic_list", metavar="IF", action=CustomAppendAction, choices=utils.interface_choice(), default=[],
+                                   help="Bind to IP address on interface IF. Use -i second time for second interface")
+        network_group.add_argument("-u", "--unicast", action="store_true", dest="unicast",
+                                   help="Configure corosync to communicate over unicast(udpu). This is the default transport type")
+        network_group.add_argument("-U", "--multicast", action="store_true", dest="multicast",
+                                   help="Configure corosync to communicate over multicast. Default is unicast")
         network_group.add_argument("-A", "--admin-ip", dest="admin_ip", metavar="IP",
                                    help="Configure IP address as an administration virtual IP")
+        network_group.add_argument("-M", "--multi-heartbeats", action="store_true", dest="second_heartbeat",
+                                   help="Configure corosync with second heartbeat line")
         network_group.add_argument("-I", "--ipv6", action="store_true", dest="ipv6",
                                    help="Configure corosync use IPv6")
 
@@ -453,6 +462,9 @@ Examples:
         stage = ""
         if len(args):
             stage = args[0]
+        if stage == "vgfs":
+            stage = "ocfs2"
+            logger.warning("vgfs stage was deprecated and is an alias of ocfs2 stage now")
 
         if options.qnetd_addr_input:
             if not ServiceManager().service_is_available("corosync-qdevice.service"):
@@ -509,6 +521,7 @@ Examples:
         parser.add_argument("-h", "--help", action="store_true", dest="help", help="Show this help message")
         parser.add_argument("-q", "--quiet", help="Be quiet (don't describe what's happening, just do it)", action="store_true", dest="quiet")
         parser.add_argument("-y", "--yes", help='Answer "yes" to all prompts (use with caution)', action="store_true", dest="yes_to_all")
+        parser.add_argument("-w", "--watchdog", dest="watchdog", metavar="WATCHDOG", help="Use the given watchdog device")
         parser.add_argument('--use-ssh-agent', action='store_true', dest='use_ssh_agent',
                             help="Use an existing key from ssh-agent instead of creating new key pairs")
 
@@ -517,7 +530,8 @@ Examples:
             "-c", "--cluster-node", metavar="[USER@]HOST", dest="cluster_node",
             help="User and host to login to an existing cluster node. The host can be specified with either a hostname or an IP.",
         )
-        network_group.add_argument("-i", "--interface", dest="nic_addr_list", metavar="IF", action=CustomAppendAction, default=[], help=constants.INTERFACE_HELP)
+        network_group.add_argument("-i", "--interface", dest="nic_list", metavar="IF", action=CustomAppendAction, choices=utils.interface_choice(), default=[],
+                help="Bind to IP address on interface IF. Use -i second time for second interface")
         options, args = parse_options(parser, args)
         if options is None or args is None:
             return

@@ -121,11 +121,7 @@ class Corosync(command.UI):
         '''
         cfg = corosync.conf()
         try:
-            rc = utils.edit_file_ext(cfg, corosync.is_valid_corosync_conf)
-            if rc and len(utils.list_cluster_nodes()) > 1:
-                logger.warning(f"\"{cfg}\" has changed, should be synced with other nodes")
-                logger.info("Use \"crm corosync diff\" to show the difference")
-                logger.info("Use \"crm corosync push\" to sync")
+            utils.edit_file_ext(cfg, template='')
         except IOError as e:
             context.fatal_error(str(e))
 
@@ -133,9 +129,10 @@ class Corosync(command.UI):
         '''
         Display the corosync configuration.
         '''
-        if not corosync.is_valid_corosync_conf():
-            return False
-        utils.page_file(corosync.conf())
+        cfg = corosync.conf()
+        if not os.path.isfile(cfg):
+            context.fatal_error("No corosync configuration found on this node.")
+        utils.page_string(open(cfg).read())
 
     def do_log(self, context):
         '''
@@ -146,15 +143,33 @@ class Corosync(command.UI):
             context.fatal_error("No corosync log file configured")
         utils.page_file(logfile)
 
+    @command.name('add-node')
+    @command.alias('add_node')
+    @command.skill_level('administrator')
+    def do_addnode(self, context, addr, name=None):
+        "Add a node to the corosync nodelist"
+        corosync.add_node(addr, name)
+
+    @command.name('del-node')
+    @command.alias('del_node')
+    @command.skill_level('administrator')
+    @command.completers(_push_completer)
+    def do_delnode(self, context, name):
+        "Remove a node from the corosync nodelist"
+        transport = corosync.get_value('totem.transport')
+        if not transport or transport != "udpu":
+            context.fatal_error("Only support udpu transport now")
+        corosync.del_node(name)
+
     @command.skill_level('administrator')
     @command.completers(completers.call(corosync.get_all_paths))
     def do_get(self, context, path):
-        """Get a corosync configuration value"""
+        "Get a corosync configuration value"
         for v in corosync.get_values(path):
             print(v)
 
     @command.skill_level('administrator')
     @command.completers(completers.call(corosync.get_all_paths))
-    def do_set(self, context, path, value, index: int = 0):
-        """Set a corosync configuration value"""
-        corosync.set_value(path, value, index)
+    def do_set(self, context, path, value):
+        "Set a corosync configuration value"
+        corosync.set_value(path, value)

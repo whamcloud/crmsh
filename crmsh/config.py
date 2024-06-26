@@ -6,7 +6,6 @@ Holds user-configurable options.
 
 import os
 import re
-import sys
 import configparser
 from contextlib import contextmanager
 from typing import List
@@ -256,7 +255,7 @@ DEFAULTS = {
         'ignore_missing_metadata': opt_boolean('no'),
         'report_tool_options': opt_string(''),
         'lock_timeout': opt_string('120'),
-        'OCF_1_1_SUPPORT': opt_boolean('yes'),
+        'OCF_1_1_SUPPORT': opt_boolean('no'),
         'obscure_pattern': opt_string('passw*')
     },
     'path': {
@@ -269,6 +268,8 @@ DEFAULTS = {
         'crm_dtd_dir': opt_dir('%(datadir)s/pacemaker'),
         'pe_state_dir': opt_dir('%(varlib)s/pacemaker/pengine'),
         'heartbeat_dir': opt_dir('%(varlib)s/heartbeat'),
+        'hb_delnode': opt_program('', ('%(datadir)s/heartbeat/hb_delnode',)),
+        'nagios_plugins': opt_dir('%(libdir)s/nagios/plugins'),
         'hawk_wizards': opt_dir('%(wwwdir)s/hawk/config/wizard'),
     },
     'color': {
@@ -293,7 +294,6 @@ DEFAULTS = {
     'report': {
         'from_time': opt_string('-12H'),
         'compress': opt_boolean('yes'),
-        'compress_prog': opt_string('gzip'),
         'speed_up': opt_boolean('no'),
         'collect_extra_logs': opt_string('/var/log/messages \
                 /var/log/crmsh/crmsh.log /etc/crm/profiles.yml /etc/crm/crm.conf'),

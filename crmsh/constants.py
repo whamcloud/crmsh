@@ -4,6 +4,80 @@
 from .ordereddict import odict
 
 
+# A list of all keywords introduced in the
+# CIB language.
+keywords = {
+    "node": "element",
+    "primitive": "element",
+    "resource": "element",
+    "group": "element",
+    "bundle": "element",
+    "clone": "element",
+    "ms": "element",
+    "master": "element",
+    "location": "element",
+    "colocation": "element",
+    "collocation": "element",
+    "order": "element",
+    "rsc_ticket": "element",
+    "rsc_template": "element",
+    "property": "element",
+    "rsc_defaults": "element",
+    "op_defaults": "element",
+    "acl_target": "element",
+    "acl_group": "element",
+    "user": "element",
+    "role": "element",
+    "fencing_topology": "element",
+    "fencing-topology": "element",
+    "tag": "element",
+    "alert": "element",
+    "monitor": "element",
+    "params": "subelement",
+    "meta": "subelement",
+    "attributes": "subelement",
+    "utilization": "subelement",
+    "operations": "subelement",
+    "op": "subelement",
+    "rule": "subelement",
+    "to": "subelement",
+    "inf": "value",
+    "INFINITY": "value",
+    "and": "op",
+    "or": "op",
+    "lt": "op",
+    "gt": "op",
+    "lte": "op",
+    "gte": "op",
+    "eq": "op",
+    "ne": "op",
+    "defined": "op",
+    "not_defined": "op",
+    "in_range": "op",
+    "in": "op",
+    "date_spec": "op",
+    "spec": "op",
+    "date": "value",
+    "yes": "value",
+    "no": "value",
+    "true": "value",
+    "false": "value",
+    "on": "value",
+    "off": "value",
+    "normal": "value",
+    "member": "value",
+    "ping": "value",
+    "remote": "value",
+    "start": "value",
+    "stop": "value",
+    "Mandatory": "value",
+    "Optional": "value",
+    "Serialize": "value",
+    "ref": "value",
+    "xpath": "value",
+    "xml": "element",
+}
+
 cib_cli_map = {
     "node": "node",
     "primitive": "primitive",
@@ -259,10 +333,11 @@ simulate_programs = {
     "simulate": "crm_simulate",
 }
 
+meta_progs = ("crmd", "pengine", "stonithd", "cib")
 meta_progs_20 = ("pacemaker-controld", "pacemaker-schedulerd", "pacemaker-fenced", "pacemaker-based")
 
 # elide these properties from tab completion
-controld_metadata_do_not_complete = ("dc-version",
+crmd_metadata_do_not_complete = ("dc-version",
                                  "cluster-infrastructure",
                                  "crmd-integration-timeout",
                                  "crmd-finalization-timeout",
@@ -273,7 +348,7 @@ extra_cluster_properties = ("dc-version",
                             "cluster-name")
 pcmk_version = ""  # set later
 
-container_type = ("docker", "podman")
+container_type = ("docker", "podman", "rkt")
 container_helptxt = {
     "container": {
         "image": """image:(string)
@@ -301,7 +376,7 @@ container_helptxt = {
     (but could, for example, be a script that does other stuff, too).""",
 
         "options": """options:(string)
-    Extra command-line options to pass to the 'docker run' or 'podman run' command"""
+    Extra command-line options to pass to the 'docker run', 'podman run' or 'rkt run' command"""
     },
 
     "network": {
@@ -416,8 +491,8 @@ CRM_MON_ONE_SHOT = "crm_mon -1"
 CRM_MON_XML_OUTPUT= "crm_mon --output-as=xml"
 STONITH_TIMEOUT_DEFAULT = 60
 PCMK_DELAY_MAX = 30
-DLM_CONTROLD_RA = "ocf:pacemaker:controld"
-LVMLOCKD_RA = "ocf:heartbeat:lvmlockd"
+DLM_CONTROLD_RA = "ocf::pacemaker:controld"
+LVMLOCKD_RA = "ocf::heartbeat:lvmlockd"
 HA_USER = "hacluster"
 HA_GROUP = "haclient"
 SCHEMA_MIN_VER_SUPPORT_OCF_1_1 = "pacemaker-3.7"
@@ -437,21 +512,7 @@ RSC_ROLE_PROMOTED_LEGACY = "Master"
 RSC_ROLE_UNPROMOTED_LEGACY = "Slave"
 PCMK_VERSION_DEFAULT = "2.0.0"
 
-INTERFACE_HELP = """Bind to IP address on interface IF. 
-Allowed value is nic name or IP address. 
-If a nic name is provided, the first IP of that nic will be used. 
-Use multiple -i for more links. Note: Only one link is allowed for the non knet transport type
-"""
-
 NON_FUNCTIONAL_COMMANDS = {'help', 'cd', 'ls', 'quit', 'up'}
 NON_FUNCTIONAL_OPTIONS = {'--help', '--help-without-redirect'}
 COROSYNC_STATUS_TYPES = ("ring", "quorum", "qdevice", "qnetd", "cpg")
-
-COROSYNC_PORT = 5405
-CSYNC2_PORT = 30865
-HAWK_PORT = 7630
-DLM_PORT = 21064
-
-# Commands that are deprecated and hidden from UI
-HIDDEN_COMMANDS = {'ms'}
 # vim:ts=4:sw=4:et:

@@ -64,7 +64,7 @@ class TestSBDTimeout(unittest.TestCase):
     @mock.patch('logging.Logger.warning')
     @mock.patch('crmsh.utils.get_qdevice_sync_timeout')
     @mock.patch('crmsh.service_manager.ServiceManager.service_is_active')
-    @mock.patch('crmsh.corosync.is_qdevice_configured')
+    @mock.patch('crmsh.utils.is_qdevice_configured')
     def test_adjust_sbd_watchdog_timeout_with_diskless_and_qdevice_sbd_stage(self, mock_is_configured, mock_is_active, mock_get_sync, mock_warn):
         mock_is_configured.return_value = True
         mock_is_active.return_value = True
@@ -74,7 +74,7 @@ class TestSBDTimeout(unittest.TestCase):
         mock_warn.assert_called_once_with("sbd_watchdog_timeout is set to 20 for qdevice, it was 5")
 
     @mock.patch('logging.Logger.warning')
-    @mock.patch('crmsh.corosync.is_qdevice_configured')
+    @mock.patch('crmsh.utils.is_qdevice_configured')
     def test_adjust_sbd_watchdog_timeout_with_diskless_and_qdevice_all(self, mock_is_configured, mock_warn):
         mock_is_configured.return_value = False
         self.sbd_timeout_inst.sbd_watchdog_timeout = 5
@@ -690,13 +690,12 @@ class TestSBDManager(unittest.TestCase):
         self.sbd_inst._context = mock.Mock(cluster_is_running=True)
         self.sbd_inst._get_sbd_device_from_config = mock.Mock()
         self.sbd_inst._get_sbd_device_from_config.return_value = ["/dev/sda1"]
-        self.sbd_inst._sbd_devices = ["/dev/sda1"]
 
         self.sbd_inst.configure_sbd_resource_and_properties()
 
         mock_package.assert_called_once_with("sbd")
         mock_enabled.assert_called_once_with("sbd.service")
-        mock_run.assert_called_once_with("crm configure primitive {} {} params devices=\"/dev/sda1\"".format(sbd.SBDManager.SBD_RA_ID, sbd.SBDManager.SBD_RA))
+        mock_run.assert_called_once_with("crm configure primitive {} {}".format(sbd.SBDManager.SBD_RA_ID, sbd.SBDManager.SBD_RA))
         mock_set_property.assert_called_once_with("stonith-enabled", "true")
 
     @mock.patch('crmsh.utils.package_is_installed')

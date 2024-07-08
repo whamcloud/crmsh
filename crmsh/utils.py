@@ -997,10 +997,10 @@ def wait4dc(what="", show_progress=True):
             dc, rc = get_dc(show_rc=True)
             if rc == 0:
                 return dc
-            if rc == 102 or rc == 1:
+            if rc in (1, 102):
                 logger.warning("Could not connect to controller: Connection refused")
                 return None
-            if rc == 124:
+            if rc in (113, 124):
                 logger.warning("No reply received from controller before timeout")
                 continue
             logger.warning("Unknown return code from crmadmin: %d", rc)

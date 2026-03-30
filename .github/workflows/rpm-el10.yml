@@ -1,0 +1,88 @@
+name: Release RPM (EL10)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v4.6.1)'
+        required: true
+        type: string
+      draft:
+        description: 'Create as draft release'
+        type: boolean
+        default: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-24.04
+    container:
+      image: rockylinux/rockylinux:10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Install git (required for checkout)
+        run: dnf install -y git
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y epel-release
+          dnf config-manager --set-enabled crb
+          dnf install -y \
+            rpm-build \
+            rpmdevtools \
+            make \
+            which \
+            autoconf \
+            automake \
+            pkgconfig \
+            python3 \
+            python3-devel \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel \
+            python3-lxml \
+            python3-dateutil \
+            pyproject-rpm-macros \
+            asciidoc \
+            systemd-rpm-macros
+
+      - name: Set up rpmbuild tree
+        run: rpmdev-setuptree
+
+      - name: Generate autotools files and configure
+        run: |
+          ./autogen.sh
+          ./configure
+
+      - name: Create source tarball and prepare rpmbuild tree
+        run: |
+          VERSION=$(awk -F'[][]' '/^AC_INIT/{print $4}' configure.ac)
+          mkdir -p /tmp/src/crmsh-${VERSION}
+          cp -r . /tmp/src/crmsh-${VERSION}/
+          tar cjf "$HOME/rpmbuild/SOURCES/crmsh-${VERSION}.tar.bz2" -C /tmp/src crmsh-${VERSION}
+          cp crmsh.tmpfiles.d.conf "$HOME/rpmbuild/SOURCES/"
+          cp crmsh.spec "$HOME/rpmbuild/SPECS/"
+
+      - name: Build binary RPM (no SRPM)
+        run: rpmbuild -bb "$HOME/rpmbuild/SPECS/crmsh.spec"
+
+      - name: Collect built RPMs
+        run: |
+          mkdir -p /tmp/rpms
+          find "$HOME/rpmbuild/RPMS" -name '*.rpm' -exec cp {} /tmp/rpms/ \;
+          echo "Built RPMs:"
+          ls -lh /tmp/rpms/
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          draft: ${{ inputs.draft }}
+          files: /tmp/rpms/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

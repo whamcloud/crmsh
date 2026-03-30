@@ -271,3 +271,5 @@ result2=$?
 %{_datadir}/%{name}/tests
 
 %changelog
+* Mon Mar 30 2026 Palash Jain <paljain@ddn.com> - 4.6.1-1
+- Add EL10 (Rocky Linux 10) RPM build support

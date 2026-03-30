@@ -1,0 +1,61 @@
+# Dockerfile for building crmsh RPM on EL10 (Rocky Linux 10)
+#
+# Build:
+#   docker build -f Dockerfile.el10 -t crmsh-el10-build .
+#
+# Extract RPMs after build (into ./rpms/ directory):
+#   mkdir -p rpms
+#   docker run --rm -v "$(pwd)/rpms:/output" crmsh-el10-build \
+#       sh -c 'cp /root/rpmbuild/RPMS/noarch/*.rpm /output/'
+#
+# To inspect the image interactively:
+#   docker run --rm -it crmsh-el10-build bash
+
+FROM rockylinux/rockylinux:10
+
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
+    dnf install -y \
+        rpm-build \
+        rpmdevtools \
+        git \
+        make \
+        which \
+        autoconf \
+        automake \
+        pkgconfig \
+        python3 \
+        python3-devel \
+        python3-pip \
+        python3-setuptools \
+        python3-wheel \
+        python3-lxml \
+        python3-dateutil \
+        pyproject-rpm-macros \
+        asciidoc \
+        systemd-rpm-macros && \
+    dnf clean all
+
+# Set up the rpmbuild directory tree
+RUN rpmdev-setuptree
+
+WORKDIR /build
+
+# Copy full source tree
+COPY . .
+
+# Generate autotools files, configure, create source tarball, then build
+# binary RPMs only (-bb skips SRPM generation entirely)
+RUN ./autogen.sh && \
+    ./configure && \
+    VERSION=$(awk -F'[][]' '/^AC_INIT/{print $4}' configure.ac) && \
+    mkdir -p /tmp/src/crmsh-${VERSION} && \
+    cp -r . /tmp/src/crmsh-${VERSION}/ && \
+    tar cjf /root/rpmbuild/SOURCES/crmsh-${VERSION}.tar.bz2 -C /tmp/src crmsh-${VERSION} && \
+    cp crmsh.tmpfiles.d.conf /root/rpmbuild/SOURCES/ && \
+    cp crmsh.spec /root/rpmbuild/SPECS/ && \
+    rpmbuild -bb /root/rpmbuild/SPECS/crmsh.spec
+
+# Default: list the built RPMs
+CMD find /root/rpmbuild/RPMS -name '*.rpm' | sort
+

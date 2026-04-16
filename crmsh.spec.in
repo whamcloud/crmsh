@@ -32,7 +32,7 @@
 %define pkg_group Productivity/Clustering/HA
 %endif
 
-%define use_firewalld 1
+%define use_firewalld 0
 %if %{use_firewalld}
 %define _fwdefdir %{_prefix}/lib/firewalld/services
 %endif
@@ -271,5 +271,9 @@ result2=$?
 %{_datadir}/%{name}/tests
 
 %changelog
+* Wed Apr 15 2026 Palash Jain <paljain@ddn.com> - 5.0.1-1
+- Bump version to 5.0.1 for EL10 build
+- Disable firewalld file ownership (use_firewalld=0) to avoid conflict with firewalld package over high-availability.xml
+
 * Mon Mar 30 2026 Palash Jain <paljain@ddn.com> - 4.6.1-1
 - Add EL10 (Rocky Linux 10) RPM build support

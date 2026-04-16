@@ -81,7 +81,7 @@ jobs:
       - name: Collect built RPMs
         run: |
           mkdir -p /tmp/rpms
-          find "$HOME/rpmbuild/RPMS" -name '*.rpm' -exec cp {} /tmp/rpms/ \;
+          find "$HOME/rpmbuild/RPMS" -name '*.rpm' ! -name 'crmsh-test-*.rpm' -exec cp {} /tmp/rpms/ \;
           echo "Built RPMs:"
           ls -lh /tmp/rpms/
 
